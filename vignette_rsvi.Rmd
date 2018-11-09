@@ -1,0 +1,46 @@
+---
+title: "RSVI"
+author: "Paula and Beni"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+# output:
+#   pdf_document:
+#     toc: true
+#     toc_depth: 2
+header-includes:
+   - \usepackage{amsmath}
+# bibliography: bibliography.bib
+---
+
+```{r}
+source("remove_outliers.R")
+source("gather_data.R")
+source("align_bydrought.R")
+source("plot_rsvi.R")
+```
+
+## Gather data
+
+```{r}
+source("remove_outliers.R")
+ddf <- gather_data()
+
+## Get additional information for the sites
+load("data/metainfo_sites_fluxnet2015.Rdata")
+```
+
+### Align by drought event
+
+```{r}
+alg <- align_bydrought( ddf )
+```
+
+### Make plots
+
+```{r}
+out <- plot_rsvi_bysite( "FR-Pue", ddf )
+```
