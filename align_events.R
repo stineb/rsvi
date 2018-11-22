@@ -4,10 +4,10 @@
 #' 
 #' @param df A data frame containing all data continuously along time.
 #' @param truefalse A boolean vector with \code{length(truefalse)==nrow(df)} specifying whether the data points fall into an event.
-#' @param dovars
-#' @param before 
-#' @param after 
-#' @param do_norm
+#' @param dovars A vector of character strings specifying which columns of \code{df} to re-arrange.
+#' @param before An integer specifying the number of days before the event onset to be retained in re-arranged data 
+#' @param after An integer specifying the number of days after the event onset to be retained in re-arranged data 
+#' @param do_norm A logical specifying whether re-arranged data is to be normalised by its value before the drought onset
 #' @param normbin
 #'
 #' @return An aligned data frame
