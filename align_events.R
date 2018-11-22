@@ -2,8 +2,11 @@
 #'
 #' Uses a vectory specifying whether data falls into an event to reshape data, aligning by the onset of the event
 #' 
-#' @param df A data frame containing all data continuously along time.
-#' @param truefalse A boolean vector with \code{length(truefalse)==nrow(df)} specifying whether the data points fall into an event.
+#' @param df A data frame containing all data continuously along time, required column named \code{site, date}. 
+#' @param df_isevent A data frame \code{nrow(df_isevent)==nrow(df)} specifying whether respective dates 
+#' (matching dates in \code{df}), fall satisfy a condition that is used to define events. Events are 
+#' consecutive dates, where this condition is satisfied (minimum length for defining an event is given by 
+#' \code{leng_threshold}). Required columns \code{site, date}
 #' @param dovars A vector of character strings specifying which columns of \code{df} to re-arrange.
 #' @param before An integer specifying the number of days before the event onset to be retained in re-arranged data 
 #' @param after An integer specifying the number of days after the event onset to be retained in re-arranged data 
@@ -15,20 +18,23 @@
 #'
 #' @examples df_alg <- align_events( df, truefalse, before=30, after=300 )
 #' 
-align_events <- function( df, truefalse, dovars, before=20, after=100, do_norm=FALSE, normbin=2 ){
+align_events <- function( df, df_isevent, dovars, leng_threshold, before, after, nbins, do_norm=FALSE, normbin=2 ){
 
   require( dplyr )
   require( tidyr )
 
   ## Bins for different variables
-  bins  <- seq( from=-before, to=after, by=(after+before+1)/4 )
+  bins  <- seq( from=-before, to=after, by=(after+before+1)/nbins )
+
+  ## merge df_isevent into df
+  df <- df %>% left_join( df_isevent, by=c("site", "date")) %>% mutate( idx_df = 1:n() )
 
   ##--------------------------------------------------------
   ## Identify events ()
   ##--------------------------------------------------------
   events <- get_consecutive( 
-              truefalse, 
-              leng_threshold = 10, 
+              df$isevent, 
+              leng_threshold = leng_threshold, 
               do_merge       = FALSE
               )
 
@@ -57,46 +63,27 @@ align_events <- function( df, truefalse, dovars, before=20, after=100, do_norm=F
     ##--------------------------------------------------------
     ## Normalise re-arranged data relative to a certain bin's median
     ##--------------------------------------------------------
-    ## add bin information based on dday to expanded df
-    df_dday <- df_dday %>% mutate( inbin  = cut( as.numeric(dday), breaks = bins ) )
-
-    tmp <- df_dday %>% group_by( inbin ) %>% 
-                       summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE )) ) %>%
-                       complete( inbin, fill = list( vpd  = NA ) ) %>% 
-                       dplyr::select( vpd )
-
-    tmp <- unlist( tmp )[1:(length(bins)-1)]
-    df_dday$nvpd <- df_dday$vpd / tmp[normbin]
+    if (do_norm){
+      ## add bin information based on dday to expanded df
+      df_dday <- df_dday %>% mutate( inbin  = cut( as.numeric(dday), breaks = bins ) )
+      
+      tmp <- df_dday %>% group_by( inbin ) %>% 
+        summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE )) ) %>% 
+        filter( !is.na(inbin) )
+      
+      norm <- slice(tmp, normbin)
+      
+      ## subtract from all values
+      df_dday <- df_dday %>% mutate_at( vars(one_of(dovars)), funs(. - norm$.) )
+    
+    }
 
     ##--------------------------------------------------------
     ## Aggregate accross events
     ##--------------------------------------------------------
     df_dday_aggbydday <- df_dday %>%  group_by( dday ) %>% 
-                                      summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE), quantile( ., 0.25, na.rm=TRUE), quantile( ., 0.75, na.rm=TRUE) ) ) %>%
+                                      summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE), q25( ., na.rm=TRUE), q75( ., na.rm=TRUE) ) ) %>%
                                       filter( !is.na( dday ) )
-
-    ## or if this doesn't work, do this:
-    df_dday_aggbydday <- df_dday %>%  group_by( dday ) %>% 
-                                      select( dday, one_of(dovars) ) %>%
-                                      summarise_all( funs(median( ., na.rm=TRUE), quantile( ., 0.25, na.rm=TRUE), quantile( ., 0.75, na.rm=TRUE) ) ) %>%
-                                      filter( !is.na( dday ) )
-
-    ## or if this doesn't work, do this:
-    ## Get quantiles for variable 'bias'
-    df_dday_agg_med <- df_dday %>%  group_by( dday ) %>% 
-                                    summarise_at( vars( one_of(dovars) ), funs(  median(.) ), na.rm = TRUE ) %>%
-                                    setNames( c("dday", paste0( names(.)[-1], "_med" ) ) )
-
-    df_dday_agg_q25 <- df_dday %>%  group_by( dday ) %>% 
-                                    summarise_at( vars( one_of(dovars) ), funs(  quantile(., probs=0.25) ), na.rm = TRUE ) %>%
-                                    setNames( c("dday", paste0( names(.)[-1], "_q25" ) ) )
-
-    df_dday_agg_q75 <- df_dday %>%  group_by( dday ) %>% 
-                                    summarise_at( vars( one_of(dovars) ), funs(  quantile(., probs=0.75) ), na.rm = TRUE ) %>%
-                                    setNames( c("dday", paste0( names(.)[-1], "_q75" ) ) )
-
-    df_dday_aggbydday <- df_dday_agg_med %>%  left_join( df_dday_agg_q25, by = "dday" ) %>% left_join( df_dday_agg_q75, by = "dday" ) %>%
-                                              filter( !is.na( dday ) )
 
   } else {
 
@@ -209,4 +196,15 @@ get_consecutive <- function( dry, leng_threshold=5, anom=NULL, do_merge=FALSE ){
   return( instances )
 }
 
+
+q25 <- function( vec, ... ){
+  quantile( vec, 0.25, ...)
+}
+
+q75 <- function( vec, ... ){
+  quantile( vec, 0.75, ...)
+}
+
+
   
+
