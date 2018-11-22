@@ -82,7 +82,7 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
     ## Aggregate accross events
     ##--------------------------------------------------------
     df_dday_aggbydday <- df_dday %>%  group_by( dday ) %>% 
-                                      summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE), q25( ., na.rm=TRUE), q75( ., na.rm=TRUE) ) ) %>%
+                                      summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE), q33( ., na.rm=TRUE), q66( ., na.rm=TRUE) ) ) %>%
                                       filter( !is.na( dday ) )
 
   } else {
@@ -197,12 +197,12 @@ get_consecutive <- function( dry, leng_threshold=5, anom=NULL, do_merge=FALSE ){
 }
 
 
-q25 <- function( vec, ... ){
-  quantile( vec, 0.25, ...)
+q33 <- function( vec, ... ){
+  quantile( vec, 0.33, ...)
 }
 
-q75 <- function( vec, ... ){
-  quantile( vec, 0.75, ...)
+q66 <- function( vec, ... ){
+  quantile( vec, 0.66, ...)
 }
 
 
