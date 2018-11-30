@@ -61,7 +61,9 @@ gather_data <- function(){
 
   ddf <- ddf %>%  mutate_at( vars( one_of( c( "ndvi", "evi", "cci", "pri", "ndsi", "wateri"))), funs(scale_range(.)) ) %>%
                   setNames( c( "site", "date", paste0("s", names(ddf)[-(1:2)] ) ) ) %>%
-                  right_join( ddf, by = c("site", "date"))
+                  right_join( ddf, by = c("site", "date")) %>%
+                  mutate( testcolumn=ndvi+evi )
+
 
   # range_cci <- range( ddf$cci, na.rm=TRUE )
   # range_pri <- range( ddf$pri, na.rm=TRUE )
