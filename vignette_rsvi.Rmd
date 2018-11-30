@@ -19,7 +19,7 @@ header-includes:
 ```{r}
 source("remove_outliers.R")
 source("gather_data.R")
-source("align_bydrought.R")
+source("align_events.R")
 source("plot_rsvi.R")
 library(dplyr)
 library(lubridate)
@@ -30,7 +30,7 @@ library(readr)
 
 ```{r}
 source("remove_outliers.R")
-ddf <- gather_data()
+ddf <- gather_data() %>% ungroup()
 
 ## Get additional information for the sites
 load("data/metainfo_sites_fluxnet2015.Rdata")
@@ -40,7 +40,7 @@ load("data/metainfo_sites_fluxnet2015.Rdata")
 
 ```{r}
 ## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
-df_flue <- readr::read_csv( "wherever/you/put/it/flue_stocker18nphyt.csv" ) %>% 
+df_flue <- readr::read_csv( "~/data/flue/flue_stocker18nphyt.csv" ) %>% 
   dplyr::select(-year, -doy, -cluster) %>% 
   dplyr::rename( isevent = is_flue_drought )
 

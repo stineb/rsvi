@@ -23,7 +23,7 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
   require( dplyr )
   require( tidyr )
 
-  ## Bins for different variables
+  ## Bins for different variables XXX a bit weird with default values
   bins  <- seq( from=-before, to=after, by=(after+before+1)/nbins )
 
   ## merge df_isevent into df
