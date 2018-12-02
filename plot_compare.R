@@ -39,25 +39,29 @@ plot_compare <- function(){
   #       values=c("#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3",
   #                "#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3")) +
   #   scale_y_continuous(limits=c(0.5,1.2)) 
+  
+  ### Other ways to scale
+  # mean to subtract a constant from every value of a variable. center is FALSE, no centering is done
+  center_scale <- scale(scaledata, scale = FALSE)
+  # Center in 0: substract value in dday 0 of all data points from each individual data point
+  center_scale <- scale(scaledata, center=data0, scale = FALSE)
+  
+  # z-scoring: values in the transformed variable have the same relationship to one another as in the untransformed variable, but the transformed variable has mean 0 and standard deviation 1
+  # Subtract the mean of all data points from each individual data point, then divide those points by the standard deviation of all point
+  center_scale <- scale(scaledata, center=TRUE, scale = TRUE)
+  # Subtract the value in dday 0 of all data points from each individual data point, then divide those points by the standard deviation of all point
+  center_scale <- scale(scaledata, center=data0, scale = TRUE)
+  
+  # # Graphics
+  # scaledata_melt <- melt(data.frame(center_scale), id.vars = "dday")
+  # scaledata_melt <- scaledata_melt[which(scaledata_melt$variable %in% mean),]
+  # ggplot(scaledata_melt, aes(x=dday, y=value, col=variable)) +
+  #   geom_line(size=1) + geom_vline(xintercept=0) + theme_classic()
+  # ggplot(scaledata_melt, aes(x=dday, y=value, col=variable)) +
+  #   geom_point(size=1) + geom_smooth() + geom_vline(xintercept=0) + theme_classic()
 
 return(p)
 }
 
-### Other ways to scale
-# mean to subtract a constant from every value of a variable. center is FALSE, no centering is done
-center_scale <- scale(scaledata, scale = FALSE)
-# Center in 0: substract value in dday 0 of all data points from each individual data point
-center_scale <- scale(scaledata, center=data0, scale = FALSE)
-# Subtract the mean of all data points from each individual data point, then divide those points by the standard deviation of all point
-center_scale <- scale(scaledata, center=TRUE, scale = TRUE)
-# Subtract the value in dday 0 of all data points from each individual data point, then divide those points by the standard deviation of all point
-center_scale <- scale(scaledata, center=data0, scale = TRUE)
 
-# Graphics
-scaledata_melt <- melt(data.frame(center_scale), id.vars = "dday")
-scaledata_melt <- scaledata_melt[which(scaledata_melt$variable %in% mean),]
-ggplot(scaledata_melt, aes(x=dday, y=value, col=variable)) +
-  geom_line(size=1) + geom_vline(xintercept=0) + theme_classic()
-ggplot(scaledata_melt, aes(x=dday, y=value, col=variable)) +
-  geom_point(size=1) + geom_smooth() + geom_vline(xintercept=0) + theme_classic()
 
