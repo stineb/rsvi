@@ -6,7 +6,7 @@ gather_data <- function(){
   ##------------------------------------------------
   ## Get PRI and CCI for all sites
   ##------------------------------------------------
-  filn <- "data/data_fluxmodis_fwk.Rdata"
+  filn <- "data/data_fluxmodis_fwk.Rdata" 
 
   ## load the data
   load( filn )  # loads a dataframe called 'data'
@@ -61,9 +61,7 @@ gather_data <- function(){
 
   ddf <- ddf %>%  mutate_at( vars( one_of( c( "ndvi", "evi", "cci", "pri", "ndsi", "wateri"))), funs(scale_range(.)) ) %>%
                   setNames( c( "site", "date", paste0("s", names(ddf)[-(1:2)] ) ) ) %>%
-                  right_join( ddf, by = c("site", "date")) %>%
-                  mutate( testcolumn=ndvi+evi )
-
+                  right_join( ddf, by = c("site", "date"))
 
   # range_cci <- range( ddf$cci, na.rm=TRUE )
   # range_pri <- range( ddf$pri, na.rm=TRUE )

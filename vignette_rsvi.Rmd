@@ -19,8 +19,9 @@ header-includes:
 ```{r}
 source("remove_outliers.R")
 source("gather_data.R")
-source("align_bydrought.R")
+source("align_events.R")
 source("plot_rsvi.R")
+source("plot_compare.R")
 library(dplyr)
 library(lubridate)
 library(readr)
@@ -30,7 +31,7 @@ library(readr)
 
 ```{r}
 source("remove_outliers.R")
-ddf <- gather_data()
+ddf <- gather_data() %>% ungroup()
 
 ## Get additional information for the sites
 load("data/metainfo_sites_fluxnet2015.Rdata")
@@ -39,21 +40,25 @@ load("data/metainfo_sites_fluxnet2015.Rdata")
 ### Align by drought event
 
 ```{r}
+require(dplyr)
 ## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
-df_flue <- readr::read_csv( "wherever/you/put/it/flue_stocker18nphyt.csv" ) %>% 
+df_flue <- readr::read_csv("data/flue_stocker18nphyt.csv") %>% 
   dplyr::select(-year, -doy, -cluster) %>% 
   dplyr::rename( isevent = is_flue_drought )
 
 ## Rearrange data. Function returns list( df_dday, df_dday_aggbydday )
 dovars <- colnames( dplyr::select( ddf, -date, -site ) ) # this does not necessarily work with the data's column names you have in 'ddf'
+# dovars <- colnames(ddf)[3:14]
 out_align <- align_events( ddf, df_flue, dovars, leng_threshold = 10, before=20, after=60, nbins=8, do_norm=FALSE )
 
 ## plot what you got with aligned data (median)
-with( out_align$df_dday_aggbydday, plot(dday, evi_median, type="l" ) )
+with(out_align$df_dday_aggbydday, plot(dday, evi_median, type="l" ))
+plot <- plot_compare()
 ```
 
 ### Make plots
 
 ```{r}
+print(plot)
 out <- plot_rsvi_bysite( "FR-Pue", ddf )
 ```
