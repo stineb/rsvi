@@ -53,12 +53,11 @@ out_align <- align_events( ddf, df_flue, dovars, leng_threshold = 10, before=20,
 
 ## plot what you got with aligned data (median)
 with(out_align$df_dday_aggbydday, plot(dday, evi_median, type="l" ))
-plot <- plot_compare()
 ```
 
 ### Make plots
 
 ```{r}
-print(plot)
+plot_compare()
 out <- plot_rsvi_bysite( "FR-Pue", ddf )
 ```
