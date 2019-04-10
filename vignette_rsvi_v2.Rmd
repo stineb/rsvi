@@ -69,5 +69,5 @@ with(out_align$df_dday_aggbydday, plot(dday, evi_median, type="l" ))
 plot_compare(out_align$df_dday_aggbydday, scale = FALSE, method = "zscore")
 # One site
 out <- plot_rsvi_bysite( "FR-Pue", ddf )
-rsvi_sites(df_dday, name_site="FR-Pue")
+rsvi_sites(out_align$df_dday, name_site="FR-Pue")
 ```
