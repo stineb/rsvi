@@ -1,15 +1,15 @@
-plot_compare <- function(data = out_align$df_dday_aggbydday, scale = FALSE, method = "zscore"){ 
+plot_compare <- function(df_dday_aggbydday, scale = FALSE, method = "zscore"){ 
   library(reshape2)
   library(ggplot2)
   
-  scaledata <- data.frame(data)
+  scaledata <- data.frame(df_dday_aggbydday)
   
-  if(scale==TRUE){
-    median <- colnames(scaledata)[c(2:5,8)]        # Median var
-  }else{median <- colnames(scaledata)[c(9:12,15)]} # Median svar
+  if(scale==FALSE){
+    median <- colnames(scaledata)[c(7:11)]        # Median var
+  }else{median <- colnames(scaledata)[c(2:6)]} # Median svar
 
   ## Center in 0 dday: Recognize value of dday 0 
-  data0 <- scaledata[which(scaledata$dday==0),]
+  data0 <- scaledata[which(scaledata$dday==0),-1]
   
   #### Method ####
   
@@ -47,7 +47,9 @@ plot_compare <- function(data = out_align$df_dday_aggbydday, scale = FALSE, meth
   ## 3.b) z-scoring: values in the transformed variable have the same relationship to one another as in the untransformed variable, but the transformed variable has mean 0 and standard deviation 1
   # Subtract the value in dday 0 of all data points from each individual data point, then divide those points by the standard deviation of all point
   }else{
-  center_scalez <- scale(scaledata, center=data0, scale = TRUE)
+  center_scalez <- data.frame(scale(scaledata[,-1], center=data0, scale = TRUE))
+  center_scalez$dday <- scaledata[,1]
+  
   # Graphics
   scaledata_melt <- melt(data.frame(center_scalez), id.vars = "dday")
   scaledata_melt <- scaledata_melt[which(scaledata_melt$variable %in% median),]
@@ -66,5 +68,5 @@ plot_compare <- function(data = out_align$df_dday_aggbydday, scale = FALSE, meth
 return(pz)
 }
 
-  
+
   
