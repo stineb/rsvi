@@ -1,0 +1,97 @@
+FLUXNET cutouts for the MODIS MOD09GA1km and MODOCGA products, top of canopy, covering 2000-2018.
+Data downloaded by Adria Descals Ferrando (http://www.creaf.cat/personal/adria-descals-ferrando), 2. April 2019.
+Reprojected using Google Earth Engine (GEE) (link: https://code.earthengine.google.com/3c5299fe5bf8392678629a1ba05b63c8).
+
+Files:
+
+- in directory FLUXNET_MODOCGA_MOD09GA1km_2000_2018: CSV for each FLUXNET site containing daily values. Description of the columns:
+	(For column descriptions that end with <MOD09GA> or <MODOCGA>: More information can be found in the user manual of the MOD09GA and MODOCGA products)
+	1. YY: Year of the observation.
+	2. MM: Month of the observation.
+	3. DD: Day of the observation.
+	4. system_index: identifier of the observation in GEE.
+	5. QC_500m: Surface Reflectance 500m Quality Assurance(bands 1-7). <MOD09GA>
+	6. QC_b16_1km: Surface Reflectance 1km Quality Assurance(band 16). <MODOCGA>
+	7. QC_b8_15_1km: Surface Reflectance 1km Quality Assurance(band 8-15). <MODOCGA>
+	8. Range: Distance to sensor. <MOD09GA>
+	9. SensorAzimuth: Azimuth angle to sensor. <MOD09GA>
+	10. SensorZenith: Zenith angle to sensor. <MOD09GA>
+	11. SolarAzimuth: Azimuth angle to sun. <MOD09GA>
+	12. SolarZenith: Zenith angle to sun. <MOD09GA>
+	13. date1: date of observation in milliseconds since 1970-01-01T00:00:00Z. Scaling factor of 86400000.
+	14. gflags: Geolocation flags. <MOD09GA>
+	15. granule_pnt: Granule pointer 500m. <MOD09GA>
+	16. granule_pnt_1: Granule pointer 1km. <MODOCGA>
+	17. igbp_flx: IGBP land cover code of the observation.
+	18. iobs_res: Number of observations within a  pixel. <MOD09GA>
+	19. lon: longitude of the FLUXNET site (used as identifier for GEE developer purposes). Use column 'x_geo' to retrieve the coordinates of the site.
+	20. num_observations: copy of column 'num_observations_1km'.
+	21. num_observations_1km: Number of observations within a pixel. <MODOCGA>
+	22. num_observations_500m: Number of observations within a pixel. <MOD09GA>
+	23. obscov_500m: Observation coverage. <MOD09GA>
+	24. orbit_pnt: Orbit pointer 500m. <MOD09GA>
+	25. orbit_pnt_1: Orbit pointer 1km. <MODOCGA>
+	26. q_scan: Scan value information. <MOD09GA>
+	27. site_num: number of the site if the FLUXNET 2015 DATASET sites_id is sorted alphabetically. min value: 1. max value: 212.
+	28: sites_id: Site identifier used in the FLUXNET 2015 DATASET.
+	29: state_1km: 1km Reflectance Data State QA. <MOD09GA>
+	30: sur_refl_b01: Surface Reflectance for Band 1. <MOD09GA>
+	31: sur_refl_b02: Surface Reflectance for Band 2. <MOD09GA>
+	32: sur_refl_b03: Surface Reflectance for Band 3. <MOD09GA>
+	33: sur_refl_b04: Surface Reflectance for Band 4. <MOD09GA>
+	34: sur_refl_b05: Surface Reflectance for Band 5. <MOD09GA>
+	35: sur_refl_b06: Surface Reflectance for Band 6. <MOD09GA>
+	36: sur_refl_b07: Surface Reflectance for Band 7. <MOD09GA>
+	37: sur_refl_b08: Surface Reflectance for Band 8. <MODOCGA>
+	38: sur_refl_b09: Surface Reflectance for Band 9. <MODOCGA>
+	39: sur_refl_b10: Surface Reflectance for Band 10. <MODOCGA>
+	40: sur_refl_b11: Surface Reflectance for Band 11. <MODOCGA>
+	41: sur_refl_b12: Surface Reflectance for Band 12. <MODOCGA>
+	42: sur_refl_b13: Surface Reflectance for Band 13. <MODOCGA>
+	43: sur_refl_b14: Surface Reflectance for Band 14. <MODOCGA>
+	44: sur_refl_b15: Surface Reflectance for Band 15. <MODOCGA>
+	45: sur_refl_b16: Surface Reflectance for Band 16. <MODOCGA>
+	46: x_geo: coordinates of the site in JSON format.
+	47: Var44: Empty column.
+	48: Var45: Empty column.
+
+
+- MOD09GA_MODOCGA_filter_indices.RData was created by "MOD09GA_MODOCGA_filter_indices.R" 
+The script does the following:
+1. Combines MOD09GA and MODOCGA products for all sites (one CSV for each FLUXNET site) into one.
+2. Filters data by quality considering band "QC_500m" for MOD09GA (bands 1-7), band "QC_b8_15_1km" for MODOCGA (bands 11-12), and band "state_1km" for all bands (1-7, 11-12).
+	- Filtering MOD09GA with bits 2 to 5 set to 0.
+	- Filtering MODOCGA with bits 12 to 19 set to 0.
+	- Filtering both products with bits 0, 1, 2, 8, 9, 10, 12 and 13 set to 0.
+3. Creates indices as new columns for each date:
+  - NDVI = (sur_refl_b02 - sur_refl_b01)/(sur_refl_b02 + sur_refl_b01))
+  - EVI = 2.5 * (sur_refl_b02 * 0.0001 - sur_refl_b01 * 0.0001) / (sur_refl_b02 * 0.0001 + 6 * sur_refl_b01 * 0.0001 - 7.5 * sur_refl_b03* 0.0001 + 1))
+  - NIRv = ndvi * sur_refl_b02
+  - CCI = (sur_refl_b11 - sur_refl_b01)/(sur_refl_b11 + sur_refl_b01)
+  - PRI = (sur_refl_b11 - sur_refl_b12)/(sur_refl_b11 + sur_refl_b12)
+4. Subset data set to the following columns:
+	1:"YY"
+	2:"MM" 
+	3:"DD"
+	4:"sites_id"
+	5:"site_num"
+	6:"QC_500m"
+	7:"state_1km"
+	8:"sur_refl_b01" 
+	9:"sur_refl_b02"
+	10:"sur_refl_b03" 
+	11:"sur_refl_b04" 
+	12:"sur_refl_b05" 
+	13:"sur_refl_b06" 
+	14:"sur_refl_b07" 
+	15:"QC_b8_15_1km" 
+	16:"sur_refl_b11" 
+	17:"sur_refl_b12" 
+	18:"ndvi"        
+	19:"evi"
+	20:"NIRv"
+	21:"cci"
+	22:"pri"    
+
+
+
