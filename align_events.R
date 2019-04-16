@@ -24,7 +24,7 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
   require( tidyr )
 
   ## Bins for different variables XXX a bit weird with default values
-  bins  <- seq( from=-before, to=after, by=(after+before+1)/nbins )
+  bins  <- seq( from=-before, to=after, by=(after+before)/nbins )
 
   ## merge df_isevent into df
   df <- df %>% left_join( df_isevent, by=c("site", "date")) %>% mutate( idx_df = 1:n() )
@@ -64,14 +64,25 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
     ## Normalise re-arranged data relative to a certain bin's median
     ##--------------------------------------------------------
     if (do_norm){
-      ## add bin information based on dday to expanded df
+
+      ## add column for bin
       df_dday <- df_dday %>% mutate( inbin  = cut( as.numeric(dday), breaks = bins ) )
       
-      tmp <- df_dday %>% group_by( inbin ) %>% 
-        summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE )) ) %>% 
-        filter( !is.na(inbin) )
+      ## Scale to between 0 and 1 => add 's' to column names
+      ## This is the same way as I did to produce figure pri_vs_fvar_ALL.R
+      ## (/alphadata01/bstocker/sofun/utils_sofun/analysis_sofun/fluxnet2015/plot_agg_nn_fluxnet2015.R)
+      df_dday <- df_dday %>%
+        select(site, date, one_of(dovars)) %>% 
+        mutate_at( 
+          vars( one_of(dovars) ), 
+          list( ~scale(., center = min(., na.rm=TRUE), scale = max(., na.rm=TRUE) - min(., na.rm=TRUE) ) ) ) %>%
+        setNames( c( "site", "date", paste0("s", dovars) ) ) %>%
+        right_join( df_dday, by = c("site", "date") )
       
-      norm <- slice(tmp, normbin)
+      norm <- df_dday %>% group_by( inbin ) %>% 
+        summarise_at( vars(one_of(dovars)), funs(median( ., na.rm=TRUE )) ) %>% 
+        filter( !is.na(inbin) ) %>% 
+        slice(normbin)
       
       ## subtract from all values
       df_dday <- df_dday %>% mutate_at( vars(one_of(dovars)), funs(. - norm$.) )
@@ -92,7 +103,7 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
 
   }
 
-  out <- list( df_dday=df_dday, df_dday_aggbydday=df_dday_aggbydday )
+  out <- list( df_dday=df_dday, df_dday_aggbydday=df_dday_aggbydday, bins=bins )
   return( out )
 
 }
