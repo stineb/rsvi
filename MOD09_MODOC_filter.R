@@ -2,6 +2,8 @@ library(lubridate)
 library(tidyverse)
 library(binaryLogic)
 
+#### MODIS productos MOD09GA and MODOCGA by site#####
+
 # Filter data:
 # Adrià: "Como bien dices, los bits 12 a 19 de la banda QC_b8_15_1km tienen que ser iguales a 0. 
 # Estos son flags específicos de las bandas 11 y 12 (para el cálculo del PRI). 
@@ -14,7 +16,7 @@ decision_QC_500m <- "yes"
 
 #### New data set MODOCGA and MOD09GA ####
 # Creates a unique data frame: 
-# READ DATA LINE 33 with the "data/MODOCGA_MOD09GA_1km_raw.Rdata" with the output of this lines
+# READ DATA (.RData) LINE 35 with the "data/MODOCGA_MOD09GA_1km_raw.Rdata" with the output of this lines ("data")
 path <- ("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/")
 files <- list.files(path, full.names = T)
 lfiles <- length(files)
