@@ -2,37 +2,35 @@ library(lubridate)
 library(tidyverse)
 library(binaryLogic)
 
-# Filter (adrià):
-# Como bien dices, los bits 12 a 19 de la banda QC_b8_15_1km tienen que ser iguales a 0. 
+# Filter data:
+# Adrià: "Como bien dices, los bits 12 a 19 de la banda QC_b8_15_1km tienen que ser iguales a 0. 
 # Estos son flags específicos de las bandas 11 y 12 (para el cálculo del PRI). 
 # Igualmente, si utilizas la banda 1 (para el CCI) deberías filtrar con los bits 2 a 5 de la banda QC_500m. 
 # Una vez aplicado este filtro, se aplica otro filtro con los bits 0  1  2  8  9  10  12  y 13 de la banda state_1km. 
-# Dicho de otro modo, el filtro de state_1km se aplica a todas las bandas, tanto del producto MODOCGA como MOD09GA.
+# Dicho de otro modo, el filtro de state_1km se aplica a todas las bandas, tanto del producto MODOCGA como MOD09GA".
 
-# ¿FILTRAR POR QC_500m?
+# ¿Filter by QC_500m?
 decision_QC_500m <- "yes"
 
 #### New data set MODOCGA and MOD09GA ####
+# Creates a unique data frame: 
+# READ DATA LINE 33 with the "data/MODOCGA_MOD09GA_1km_raw.Rdata" with the output of this lines
+path <- ("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/")
+files <- list.files(path, full.names = T)
+lfiles <- length(files)
+namefiles <- list.files(path, full.names = F)
+namesites <- substr(namefiles,1,6)
 
-#  READ DATA LINE 34
-# path <- ("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/")
-# files <- list.files(path, full.names = T)
-# lfiles <- length(files)
-# namefiles <- list.files(path, full.names = F)
-# namesites <- substr(namefiles,1,6)
-# 
-# # Raw data
-# data <- NULL
-# for (i in 1:lfiles){
-#   site <- read.csv(files[i],header=F,stringsAsFactors = FALSE)
-#   colnames(site) <- as.character(site[1,])
-#   site <- site[c(2:nrow(site)),c(-ncol(site),(1-ncol(site)))]
-#   data <- rbind(data,site)
-# }
+# Raw data
+data <- NULL
+for (i in 1:lfiles){
+  site <- read.csv(files[i],header=F,stringsAsFactors = FALSE)
+  colnames(site) <- as.character(site[1,])
+  site <- site[c(2:nrow(site)),c(-ncol(site),(1-ncol(site)))]
+  data <- rbind(data,site)
+}
 
-# write.csv(data, "data/MODOCGA_MOD09GA_1km_raw.csv", row.names=FALSE)
-# data <- read.csv("data/MODOCGA_MOD09GA_1km_raw.csv")
-load("data/MODOCGA_MOD09GA_1km_raw.Rdata")
+# load("data/MODOCGA_MOD09GA_1km_raw.Rdata")
 data <- as_tibble(data)
 
 # "scale factor" <- no necesario, está incluído en el cálculo de los índices, cuando es necesario
@@ -146,5 +144,6 @@ filter_state_data <- filter_state_data %>%
   # mutate(PRIn = PRI - PRI0) %>%  # PRI0 = the intercept of PRI vs APAR for a two-month window
   # mutate(sPRIn = (PRIn + 1)/2) 
 
-write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_indices.csv", row.names=FALSE)
+# Generate a CSV and a RData file
+# write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_indices.csv", row.names=FALSE)
 
