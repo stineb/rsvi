@@ -55,7 +55,10 @@ ddf <- ddf %>% filter( site %in% df_homo$sitename )
 
 ## Scaling
 
-Scaling is done with respect to the full time series of the RSVIs, not just the subset of data points just before and during drought events. 
+Scaling is done with respect to the full time series of the RSVIs, not just the subset of data points just before and during drought events. Two methods are implemented:
+
+- `"range"`: scales by range to within 0 and 1, where the range is from all values from all sites and dates.
+- `"range_bysite"`: scales by range to within 0 and 1 by site, where the range is from values for each site separately.
 ```{r}
 dovars <- colnames( dplyr::select( ddf, -date, -site ) )
 ddf <- ddf %>% add_scaled_rsvi(dovars, method="range")
@@ -185,8 +188,6 @@ df_dday_agg_inst_site %>%
   facet_wrap(~rsvi)
 ```
 
-## Plot correlations
-
 ## Next steps
 
 - Add vegetation type to data and do evaluations with data aggregated by vegetation type - the way you've done it before.
@@ -197,12 +198,15 @@ ddf %>%
   ggplot(aes(x=evi, y=pri, color=is_flue_drought)) +
   geom_point(alpha=0.2)
 ```
+
 - Complement the data with meteorological variables, measured at the FLUXNET sites. 
 ```{r}
 load("/Users/benjaminstocker/eval_pmodel/data/obs_eval_NT.Rdata") # adjust path
 ddf <- ddf %>% left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date"))
 ```
+
 - Based on the effect of the factor `is_flue_drought` on the relationship between RSVIs, we may try to predict this factor using the information in RSVIs. Two methods could be tried out:
+  
   - K-means clustering with `k=2`, then check whether clusters are congruent with `is_flue_drought`. It looks like indeed, most of the drought-days can correctly be identified as such based on the RSVIs:
 ```{r}
 ddf_cluster <- ddf %>% 
@@ -216,6 +220,7 @@ ddf_cluster %>%
   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) +
   geom_bar(stat="identity", position=position_dodge())
 ```  
+
 It might be worthwhile adding temperature and PPFD in the mix of variables used for K-means clustering. Try it out yourself!
   - Random-forest, supervised machine-learning with `is_flue_drought` as target and RSVIs (plus possibly other meteorological variables) as predictors. The `caret` R package offers a nice framework to use machine-learning models. Let's speak before diving into this.
 - Look at the mean seasonality. A hypothesis to look at is whether RSVIs co-vary and whether this covariation is affected by the factor `is_flue_drought`. A quick look at that:
