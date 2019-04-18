@@ -12,7 +12,7 @@ library(binaryLogic)
 # Dicho de otro modo, el filtro de state_1km se aplica a todas las bandas, tanto del producto MODOCGA como MOD09GA".
 
 # ¿Filter by QC_500m?
-decision_QC_500m <- "yes"
+decision_QC_500m <- "no"
 
 #### New data set MODOCGA and MOD09GA ####
 # Creates a unique data frame: 
@@ -33,7 +33,9 @@ for (i in 1:lfiles){
 }
 
 # load("data/MODOCGA_MOD09GA_1km_raw.Rdata")
-data <- as_tibble(data)
+data <- as_tibble(data)  %>% 
+  mutate_at(.vars = vars(matches("sur_refl", ignore.case=FALSE)),funs(as.numeric)) # Si es necesario, a veces lee csv como character
+            
 
 # "scale factor" <- no necesario, está incluído en el cálculo de los índices, cuando es necesario
 # data <- data0  %>% mutate_at(.vars = vars(matches("sur_refl", ignore.case=FALSE)),funs(.*0.0001))
@@ -90,7 +92,7 @@ QC_Data <- data.frame(Integer_Value = qflags_QCoc, # In an unsigned representati
                       Bit0 = NA)
 
 r <- 0
-for(i in QC_Data$Integer_Value){
+for(i in as.numeric(QC_Data$Integer_Value)){
   # AsInt <- as.integer(intToBits(i))
   AsInt <- as.integer(as.logical(as.binary(i, n=32, logic=F)))
   QC_Data[r+1,2:33]<- AsInt[1:32]
@@ -149,3 +151,7 @@ filter_state_data <- filter_state_data %>%
 # Generate a CSV and a RData file
 # write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_indices.csv", row.names=FALSE)
 
+# No filtering by QC_500m:
+# write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_onlyState1km_indices.csv", row.names=FALSE)
+
+#### DIFERENCIA DE FILTROS ####

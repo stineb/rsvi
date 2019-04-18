@@ -8,17 +8,21 @@ gather_data <- function(){
   ##------------------------------------------------
   path <- "C:/Users/Paula/Desktop/Pau/Ecologia terrestre"
   filn <- "C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/MOD09GA_MODOCGA_filter_indices.Rdata" 
-
+  
   ## load the data
   load( filn )  # loads a dataframe called 'data'
   df <- as_tibble(filter_state_data)  # copy 'filter_data' to 'df' and convert it to a 'tibble' (like a dataframe but with nicer properties)
   rm(filter_state_data) # delete object 'data'
   
+  # No filtering by QC_500m
+  # df <- read.csv("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/MOD09GA_MODOCGA_filter_onlyState1km_indices.csv")
+  # df <- as_tibble(df)
+  # 
   # Create date
   df$date <- as.Date(with(df, paste(YY, MM, DD,sep="-")), "%Y-%m-%d")
   
   ## rename variable
-  df <- df %>%  rename (site = sites_id) %>% mutate (site = as.character(site)) # otherwise creates problems with summarising. I don't understand why.
+  df <- df %>%  dplyr::rename (site = sites_id) %>% mutate (site = as.character(site)) # otherwise creates problems with summarising. I don't understand why.
 
   ## aggregate to daily mean values (multiple data points given per day in original dataset)
   ## This is the short version
