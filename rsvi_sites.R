@@ -1,4 +1,11 @@
-rsvi_sites <- function(df_dday, name_site, all=FALSE){ # out_align$df_dday
+#' Plot rsvi by site
+#'
+#' Uses a data frame with drought day and indices values for all FLUXNET homogeneous sites
+#' 
+#' @param df_dday A data frame containing all data continuously along time, required column named \code{site, dday}. 
+#' @param name_site A character string specifying name of the site of interest from the list of homogeneous sites
+
+rsvi_sites <- function(df_dday, name_site){ # out_align$df_dday
 
   library(dplyr)
   library(reshape2)
