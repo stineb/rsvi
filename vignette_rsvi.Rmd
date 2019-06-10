@@ -26,6 +26,7 @@ source("plot_compare.R")
 source("rsvi_sites.R")
 source("add_scaled_rsvi.R")
 source("add_normalised_rsvi.R")
+# source("Index_vs_Index_isEvent.R")
 
 library(dplyr)
 library(lubridate)
@@ -56,7 +57,8 @@ df_homo <- read_csv("./data/sites.csv")
 ddf <- ddf %>% filter( site %in% df_homo$sitename )
 df_homo$sitename
 ```
-## sPRI: To ensure positive values that are better comparable standardized as by Rahman et al. and Goerner et al.(Vicca 2016)
+## sPRI:
+ To ensure positive values that are better comparable standardized as by Rahman et al.2004 Vicca et al 2016.
 ```{r}
 # ddf <- ddf %>% 
 #   mutate(pri = (pri+1)/2)
@@ -275,7 +277,7 @@ df_dday_agg_inst_veg %>%  group_by( dday, classid, rsvi ) %>%
       mutate(rsvi=factor(rsvi,levels=vars)) %>% 
   ggplot(aes(x=dday, y=median, group=rsvi, color=rsvi)) + # If we want the different sites: ,group=site
   geom_vline(xintercept=0,col="gray") + geom_hline(yintercept=1,col="gray") +
-  geom_line() + #geom_ribbon(aes(ymin=q33, ymax=q66), alpha=0.3) +
+  geom_line() + # geom_ribbon(aes(ymin=q33, ymax=q66), alpha=0.3) +
   # xlim(-10, 40) + 
   theme_bw() +
   facet_wrap(~classid,  scales = "free_y") +
@@ -317,10 +319,14 @@ ddf %>%
   geom_point(alpha=0.2)
 
 ```
-## Index vs Index
+## Index vs Index: pdf attached, it has problems here
 ```{r}
 # Temperature filter (<5ºC) and aggregated by vegetation type
-Index_vs_Index_isEvent()
+ddf_veg <- ddf %>% 
+  left_join(rename(metainfo_sites_fluxnet2015[,c(1,5)], site=mysitename), by="site")
+
+nclass <- unique(ddf_veg$classid)
+# Index_vs_Index_isEvent() 
 ```
 - Based on the effect of the factor `is_flue_drought` on the relationship between RSVIs, we may try to predict this factor using the information in RSVIs. Two methods could be tried out:
   
@@ -328,7 +334,7 @@ Index_vs_Index_isEvent()
 ```{r}
 ddf_cluster <- ddf %>%
   # filter(temp>5) %>%
-  select(is_flue_drought, one_of(dovars), temp, prec_fluxnet2015, ppfd_fluxnet2015) %>% # Add temperature and PPFD here if you like. (Paula: Didn't change the results)
+  select(is_flue_drought, one_of(dovars)) %>% # Add temperature and PPFD here if you like. (Paula: Didn't change the results)
   drop_na()
 outkmeans <- kmeans( ddf_cluster, 2 )
 ddf_cluster %>% 
@@ -338,8 +344,21 @@ ddf_cluster %>%
   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) +
   geom_bar(stat="identity", position=position_dodge())
 ```  
+Adding temperature and PPFD in the mix of variables used for K-means but the proportions didn't in each cluster change
+```{r}
+ddf_cluster <- ddf %>%
+  # filter(temp>5) %>%
+  select(is_flue_drought, one_of(dovars), temp, prec_fluxnet2015, ppfd_fluxnet2015) %>% 
+  drop_na()
+outkmeans <- kmeans( ddf_cluster, 2 )
+ddf_cluster %>% 
+  mutate(cluster=as.factor(outkmeans$cluster-1)) %>%
+  group_by(cluster, is_flue_drought) %>% 
+  summarise(count=n()) %>% 
+  ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) +
+  geom_bar(stat="identity", position=position_dodge()) 
+```  
 
-It might be worthwhile adding temperature and PPFD in the mix of variables used for K-means clustering. Try it out yourself!
   - Random-forest, supervised machine-learning with `is_flue_drought` as target and RSVIs (plus possibly other meteorological variables) as predictors. The `caret` R package offers a nice framework to use machine-learning models. Let's speak before diving into this.
   
 ## Random-forest
