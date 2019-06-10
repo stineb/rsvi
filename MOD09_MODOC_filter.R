@@ -1,9 +1,12 @@
+MOD09_MODOC_filter <- function(QC500_filter="yes"){
+
 library(lubridate)
 library(tidyverse)
 library(binaryLogic)
 
 #### MODIS productos MOD09GA and MODOCGA by site#####
-
+  path <- "C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/"
+  
 # Filter data:
 # Adrià: "Como bien dices, los bits 12 a 19 de la banda QC_b8_15_1km tienen que ser iguales a 0. 
 # Estos son flags específicos de las bandas 11 y 12 (para el cálculo del PRI). 
@@ -12,12 +15,10 @@ library(binaryLogic)
 # Dicho de otro modo, el filtro de state_1km se aplica a todas las bandas, tanto del producto MODOCGA como MOD09GA".
 
 # ¿Filter by QC_500m?
-decision_QC_500m <- "no"
+decision_QC_500m <- QC500_filter
 
-#### New data set MODOCGA and MOD09GA ####
 # Creates a unique data frame: 
 # READ DATA (.RData) LINE 35 with the "data/MODOCGA_MOD09GA_1km_raw.Rdata" with the output of this lines ("data")
-path <- ("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/")
 files <- list.files(path, full.names = T)
 lfiles <- length(files)
 namefiles <- list.files(path, full.names = F)
@@ -35,11 +36,6 @@ for (i in 1:lfiles){
 # load("data/MODOCGA_MOD09GA_1km_raw.Rdata")
 data <- as_tibble(data)  %>% 
   mutate_at(.vars = vars(matches("sur_refl", ignore.case=FALSE)),funs(as.numeric)) # Si es necesario, a veces lee csv como character
-            
-
-# "scale factor" <- no necesario, está incluído en el cálculo de los índices, cuando es necesario
-# data <- data0  %>% mutate_at(.vars = vars(matches("sur_refl", ignore.case=FALSE)),funs(.*0.0001))
-#  mutate_each(funs(.*0.0001), starts_with(""sur_refl"))
 
 ####  MOD09 ####
 mod09 <- data %>% select(YY, MM, DD,  site_num, sites_id, QC_500m, state_1km, sur_refl_b01, sur_refl_b02, sur_refl_b03, sur_refl_b04, sur_refl_b05, sur_refl_b06, sur_refl_b07) 
@@ -151,7 +147,4 @@ filter_state_data <- filter_state_data %>%
 # Generate a CSV and a RData file
 # write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_indices.csv", row.names=FALSE)
 
-# No filtering by QC_500m:
-# write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_onlyState1km_indices.csv", row.names=FALSE)
-
-#### DIFERENCIA DE FILTROS ####
+}
