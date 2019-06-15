@@ -26,6 +26,7 @@ source("plot_compare.R")
 source("rsvi_sites.R")
 source("add_scaled_rsvi.R")
 source("add_normalised_rsvi.R")
+source("get_consecutive.R")
 # source("Index_vs_Index_isEvent.R")
 
 library(dplyr)
@@ -85,20 +86,67 @@ ddf <- read_csv("data/flue_stocker18nphyt.csv") %>% #/alphadata01/bstocker/data/
 ```
 
 ## Plot time series
-
 Interesting: There is quite a trend in these indices, here for the site FR-Pue.
 ```{r}
-ddf %>% 
+# pdf(paste("Times_series.pdf",sep=""),width=10.84,height=5.30)
+for(i in 1:length(unique(ddf$site))){
+namesite <- unique(ddf$site)[i]
+ddfsite <- ddf %>% filter(site == namesite)
+flue_droughts <-  get_consecutive(ddfsite$is_flue_drought) 
+if (nrow(flue_droughts)>0) {
+flue_droughts$date_start <- ddfsite$date[flue_droughts$idx_start]
+flue_droughts <- flue_droughts %>%  mutate(date_end = date_start + len) 
+
+print(ddf %>% 
   tidyr::gather(rsvi, value, c(flue, ndvi, evi, cci, pri, NIRv)) %>% 
-  filter(site=="FR-Pue") %>% 
+  filter(site==namesite) %>% 
+  mutate(rsvi=factor(rsvi,levels=c("flue","ndvi", "evi", "cci", "pri", "NIRv"))) %>% 
   ggplot(aes(x=date, y=value)) +
-  geom_line() +
-  facet_grid(rows=vars(rsvi), scales = "free_y")
+    facet_grid(rows=vars(rsvi), scales = "free_y") +
+    geom_rect(
+    data = flue_droughts, 
+    aes(x = NULL,y = NULL, xmin=date_start, xmax=date_end, ymin=-Inf, ymax=Inf),
+    fill=("#e8c745"), alpha=0.7, #rgb(0,0,0,0.3) 
+    color=NA) +
+  geom_line() + theme_bw() + ggtitle(namesite) +
+  scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))))
+}else{
+ print(ddf %>% 
+  tidyr::gather(rsvi, value, c(flue, ndvi, evi, cci, pri, NIRv)) %>% 
+  filter(site==namesite) %>% 
+  mutate(rsvi=factor(rsvi,levels=c("flue","ndvi", "evi", "cci", "pri", "NIRv"))) %>% 
+  ggplot(aes(x=date, y=value)) +
+    facet_grid(rows=vars(rsvi), scales = "free_y")  +
+  geom_line() + theme_bw() + ggtitle(namesite) +
+  scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))))
+}
+
+}
+# dev.off()
+```
+```{r}
+namesite <- "FR-Pue"
+ddfsite <- ddf %>% filter(site == namesite)
+flue_droughts <-  get_consecutive(ddfsite$is_flue_drought) 
+flue_droughts$date_start <- ddfsite$date[flue_droughts$idx_start]
+flue_droughts <- flue_droughts %>%  mutate(date_end = date_start + len) 
+
+ddf %>% 
+  tidyr::gather(rsvi, value, c(flue, pri)) %>% 
+  filter(site==namesite) %>% 
+  ggplot(aes(x=date, y=value)) +
+  geom_line(aes(group=rsvi)) +
+  theme_bw() +
+  facet_grid(rows=vars(rsvi), scales = "free_y") +
+    geom_rect(
+    data = flue_droughts, 
+    aes(x = NULL,y = NULL, xmin=date_start, xmax=date_end, ymin=-Inf, ymax=Inf),
+    fill=rgb(0,0,0,0.3), 
+    color=NA) 
+
 ```
 
-
 ## Align by drought event
-
 ```{r}
 ## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
 
@@ -114,6 +162,25 @@ out_align <- align_events(
   leng_threshold=10, 
   before=10, after=80, nbins=9
   )
+
+## Raw data time series
+out_align$df_dday_agg_inst %>% filter(site == namesite) %>%
+  ggplot(aes(x=dday, y=pri_median)) +
+  geom_line() 
+
+##  Raw data, aligned by drought events
+out_align$df_dday %>% #filter(site == namesite) %>%
+  ggplot(aes(x=dday, y=pri)) +
+  geom_line(aes(group=inst)) +
+  facet_wrap(~site, scales = "free_y") + ggtitle("RSVI")
+
+##  dsRSVI data, aligned by drought events
+out_align$df_dday %>% #filter(site == namesite) %>%
+  ggplot(aes(x=dday, y=dspri)) +
+  geom_line(aes(group=inst)) +
+  theme_bw() +
+  facet_wrap(~site, scales = "free_y") + ggtitle("sdRSVI")
+
 ```
 Not clear to me why the curve is not centered around 1 for dday between -10 and 0 (zero-bin). Division by median of value in zero-bin is done in `align_events()`.
 
@@ -334,7 +401,7 @@ nclass <- unique(ddf_veg$classid)
 ```{r}
 ddf_cluster <- ddf %>%
   # filter(temp>5) %>%
-  select(is_flue_drought, one_of(dovars)) %>% # Add temperature and PPFD here if you like. (Paula: Didn't change the results)
+  select(is_flue_drought, one_of(dovars)) %>% # Add temperature and PPFD here if you like. 
   drop_na()
 outkmeans <- kmeans( ddf_cluster, 2 )
 ddf_cluster %>% 
@@ -343,12 +410,15 @@ ddf_cluster %>%
   summarise(count=n()) %>% 
   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) +
   geom_bar(stat="identity", position=position_dodge())
+
+outkmeans
 ```  
-Adding temperature and PPFD in the mix of variables used for K-means but the proportions didn't in each cluster change
+Adding temperature and PPFD (PPFDxfAPAR to get the "absorbed" light, not incident light)) in the mix of variables used for K-means but the proportions didn't in each cluster change
 ```{r}
 ddf_cluster <- ddf %>%
   # filter(temp>5) %>%
-  select(is_flue_drought, one_of(dovars), temp, prec_fluxnet2015, ppfd_fluxnet2015) %>% 
+  mutate (PPFD = ppfd_fluxnet2015 * fapar) %>%
+  select(is_flue_drought, dovars, PPFD, temp, prec_fluxnet2015) %>% 
   drop_na()
 outkmeans <- kmeans( ddf_cluster, 2 )
 ddf_cluster %>% 
@@ -357,6 +427,7 @@ ddf_cluster %>%
   summarise(count=n()) %>% 
   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) +
   geom_bar(stat="identity", position=position_dodge()) 
+outkmeans
 ```  
 
   - Random-forest, supervised machine-learning with `is_flue_drought` as target and RSVIs (plus possibly other meteorological variables) as predictors. The `caret` R package offers a nice framework to use machine-learning models. Let's speak before diving into this.
