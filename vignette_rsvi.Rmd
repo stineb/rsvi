@@ -58,12 +58,6 @@ df_homo <- read_csv("./data/sites.csv")
 ddf <- ddf %>% filter( site %in% df_homo$sitename )
 df_homo$sitename
 ```
-## sPRI:
- To ensure positive values that are better comparable standardized as by Rahman et al.2004 Vicca et al 2016.
-```{r}
-# ddf <- ddf %>% 
-#   mutate(pri = (pri+1)/2)
-```
 ## Scaling
 
 Scaling is done with respect to the full time series of the RSVIs, not just the subset of data points just before and during drought events. Two methods are implemented:
@@ -90,8 +84,8 @@ Interesting: There is quite a trend in these indices, here for the site FR-Pue.
 ```{r}
 # pdf(paste("Times_series.pdf",sep=""),width=10.84,height=5.30)
 for(i in 1:length(unique(ddf$site))){
-namesite <- unique(ddf$site)[i]
-ddfsite <- ddf %>% filter(site == namesite)
+sitename <- unique(ddf$site)[i]
+ddfsite <- ddf %>% filter(site == sitename)
 flue_droughts <-  get_consecutive(ddfsite$is_flue_drought) 
 if (nrow(flue_droughts)>0) {
 flue_droughts$date_start <- ddfsite$date[flue_droughts$idx_start]
@@ -108,7 +102,7 @@ print(ddf %>%
     aes(x = NULL,y = NULL, xmin=date_start, xmax=date_end, ymin=-Inf, ymax=Inf),
     fill=("#e8c745"), alpha=0.7, #rgb(0,0,0,0.3) 
     color=NA) +
-  geom_line() + theme_bw() + ggtitle(namesite) +
+  geom_line() + theme_bw() + ggtitle(sitename) +
   scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))))
 }else{
  print(ddf %>% 
@@ -125,15 +119,15 @@ print(ddf %>%
 # dev.off()
 ```
 ```{r}
-namesite <- "FR-Pue"
-ddfsite <- ddf %>% filter(site == namesite)
+sitename <- "FR-Pue"
+ddfsite <- ddf %>% filter(site == sitename)
 flue_droughts <-  get_consecutive(ddfsite$is_flue_drought) 
 flue_droughts$date_start <- ddfsite$date[flue_droughts$idx_start]
 flue_droughts <- flue_droughts %>%  mutate(date_end = date_start + len) 
 
 ddf %>% 
   tidyr::gather(rsvi, value, c(flue, pri)) %>% 
-  filter(site==namesite) %>% 
+  filter(site==sitename) %>% 
   ggplot(aes(x=date, y=value)) +
   geom_line(aes(group=rsvi)) +
   theme_bw() +
@@ -164,18 +158,18 @@ out_align <- align_events(
   )
 
 ## Raw data time series
-out_align$df_dday_agg_inst %>% filter(site == namesite) %>%
+out_align$df_dday_agg_inst %>% filter(site == sitename) %>%
   ggplot(aes(x=dday, y=pri_median)) +
   geom_line() 
 
 ##  Raw data, aligned by drought events
-out_align$df_dday %>% #filter(site == namesite) %>%
+out_align$df_dday %>% #filter(site == sitename) %>%
   ggplot(aes(x=dday, y=pri)) +
   geom_line(aes(group=inst)) +
   facet_wrap(~site, scales = "free_y") + ggtitle("RSVI")
 
 ##  dsRSVI data, aligned by drought events
-out_align$df_dday %>% #filter(site == namesite) %>%
+out_align$df_dday %>% #filter(site == sitename) %>%
   ggplot(aes(x=dday, y=dspri)) +
   geom_line(aes(group=inst)) +
   theme_bw() +
@@ -412,6 +406,7 @@ ddf_cluster %>%
   geom_bar(stat="identity", position=position_dodge())
 
 outkmeans
+
 ```  
 Adding temperature and PPFD (PPFDxfAPAR to get the "absorbed" light, not incident light)) in the mix of variables used for K-means but the proportions didn't in each cluster change
 ```{r}
@@ -438,9 +433,13 @@ outkmeans
 ```
 - Look at the mean seasonality. A hypothesis to look at is whether RSVIs co-vary and whether this covariation is affected by the factor `is_flue_drought`. A quick look at that:
 ```{r}
+
 dsdovars <- paste0("d", sdovars)
+
+for (i in 1:length(unique(ddf$site))){
+sitename <- unique(ddf$site)[i]
 tmp <- ddf %>% 
-  filter(site=="FR-Pue") %>% 
+  filter(site==sitename) %>% 
   mutate(doy=lubridate::yday(date)) %>% 
   group_by(site, doy) %>% 
   summarise_at(
@@ -448,11 +447,12 @@ tmp <- ddf %>%
     funs(mean(., na.rm=TRUE)) ) %>% 
   tidyr::gather("rsvi", "value", c("is_flue_drought", dsdovars))
 
-ggplot() +
-  # geom_vline(data=filter(tmp, rsvi == "is_flue_drought"), aes(xintercept=doy, alpha=0.5*value), size=0.2) +
-  geom_line(data=filter(tmp, !(rsvi == "is_flue_drought")), aes(x=doy, y=value, color=rsvi)) +
-  theme_bw()
-
+print(ggplot() +
+  geom_vline(data=filter(tmp, rsvi == "is_flue_drought"), aes(xintercept=doy, alpha=0.5*value), size=0.2) +
+  geom_line(data=filter(tmp, !(rsvi == "is_flue_drought")), aes(x=doy, y=value, color=rsvi), size=1) +
+    ggtitle(sitename) + 
+  theme_bw())
+}
 # plot_compare(out_align$df_dday_aggbydday, scale = FALSE, method = "zscore")
 # # One site
 # out <- plot_rsvi_bysite( "FR-Pue", ddf )
