@@ -121,7 +121,7 @@ print(paste("Re-calculated mean accuracy across leave-site-out models:", acc_tes
 cm_simple <- list_modobs_listmodels %>% bind_rows() %>% table()
 df_modobs_listmodels <- list_modobs_listmodels %>% bind_rows()
 cm <- confusionMatrix( data = as.factor(df_modobs_listmodels$mod), 
-                 reference = as.factor(df_modobs_listmodels$obs) )
+                       reference = as.factor(df_modobs_listmodels$obs) )
 
 ## Show results for each site (prediction trained at all other sites)
 vec_acc <- purrr::map_dbl(rf_mylgocv$list_rf, "myresults")
@@ -199,8 +199,9 @@ rf_lgocv_flue <- wrap_ml( df = ddf_sub,
                           )
 
 print(paste("Results of main model:"))
-print(rf_lgocv_flue$rf$results)   # DIFFICULT: has r-squared of only 0.243
+print(rf_lgocv_flue$rf$results)
 
+## A: Mod vs obs for single model, evaluated at all data
 # rf_lgocv_flue$rf$pred_test <- predict(rf_lgocv_flue$rf, newdata = ddf_sub, preProcess = pre_process ) ## yes, that's the same
 rf_lgocv_flue$rf$obs  <- ddf_sub[["flue"]]
 out_modobs <- tibble(mod = as.vector(rf_lgocv_flue$rf$pred), 
@@ -208,8 +209,11 @@ out_modobs <- tibble(mod = as.vector(rf_lgocv_flue$rf$pred),
   analyse_modobs2(mod = "mod", obs = "obs")
 out_modobs$gg
 
-## Evaluate "by hand":
-# Plot mod vs obs from all sub-models pooled (necessary to set 'inner' = TRUE to get all this data)
+## B: Mod vs obs for leave-group-out models, evaluated at left-out site data
+## Note: it's necessary to set 'inner' = TRUE in the wrap_ml() call to get all this data
+## ==> Note: much worse performance than suggested above. 
+## Important: The performance of the pooled model (shown here) is not the same as the 
+## mean across individual models from left-out sites.
 get_modobs <- function(df){
   tibble(mod = as.vector(df$pred), obs = df$obs)
 }
@@ -219,13 +223,26 @@ out_modobs <- list_modobs_listmodels %>%
   rbeni::analyse_modobs2(mod = "mod", obs = "obs")
 out_modobs$gg
 
-# this gives almost the same results
+# This gives almost the same results as the summary of the main model 
 results_by_listmodels <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>% 
   purrr::map_dfr(., "results") %>% 
   dplyr::summarise_all(.funs = mean)
 
 print(results_by_listmodels)
 print(rf_lgocv_flue$rf$results)
+
+## C: Is this the same like we would get from predicting at all left-out sites
+## with the single fitted model?
+get_modobs <- function(df){
+  tibble(mod = as.vector(df$pred_main), obs = df$obs)
+}
+list_modobs_listmodels_main <- purrr::map(rf_lgocv_flue$list_rf, ~get_modobs(.))
+out_modobs <- list_modobs_listmodels_main %>%
+  bind_rows %>% 
+  rbeni::analyse_modobs2(mod = "mod", obs = "obs")
+out_modobs$gg
+## ==> This is the same as A
+
 
 ## knowing this, we can do the same for reduced predictors ('uno')
 rf_lgocv_flue2 <- wrap_ml( df = ddf_sub, 

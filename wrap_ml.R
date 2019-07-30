@@ -98,7 +98,7 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
   
   if (inner){
     # Check if it makes sense
-    wrap_ml_inner <- function(df, rf, predictors, nam_target, forml, isite){
+    wrap_ml_inner <- function(df, rf_main, predictors, nam_target, forml, isite){
       
       print(paste("training model with leave-site-out:", isite, "..."))
       
@@ -129,6 +129,8 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
       # predict
       rf$pred <- predict(rf, newdata = df_test, preProcess = pre_process)
       rf$obs  <- df_test[[nam_target]]
+      
+      rf$pred_main <- predict(rf_main, newdata = df_test, preProcess = pre_process)
       
       # summarise
       if (classification){
