@@ -19,7 +19,7 @@ header-includes:
 ```{r}
 source("remove_outliers.R")
 source("gather_data.R")
-source("align_events_with_sd.R")
+source("align_events.R")
 source("plot_rsvi.R")
 source("plot_compare.R")
 source("rsvi_sites.R")
@@ -41,7 +41,7 @@ Load all RSVI data from .Rdata file. Preprocessed by Paula.
 ```{r}
 ## change path to file by hand here
 ## TODO: gather_data() should ideally take the paths to site-specific CSV files that were downloaded by Adria.
-ddf <- gather_data("/alphadata01/bstocker/data/modis_MOD09GA1km_fluxnet_cutouts/MOD09GA_MODOCGA_filter_indices.RData") %>% 
+ddf <- gather_data("/alphadata01/bstocker/data/modis_MOD09GA1km_fluxnet_cutouts/MOD09GA_MODOCGA_filter_indices.RData", add_scaled = FALSE) %>% 
   ungroup()
 ```
 
@@ -49,7 +49,7 @@ ddf <- gather_data("/alphadata01/bstocker/data/modis_MOD09GA1km_fluxnet_cutouts/
 
 Subset homogenous sites. Selection of sites is based on whether sites could be allocated to clusters in Stocker et al. (2018) and based on the selection by Manuela Balzarolo (see `site_selection_rsvi.Rmd`).
 ```{r}
-df_homo <- read_csv("./data/sites.csv")
+df_homo <- read_csv("./data/sites2.csv")
 ddf <- ddf %>% filter( site %in% df_homo$sitename )
 ```
 
@@ -60,8 +60,10 @@ Scaling is done with respect to the full time series of the RSVIs, not just the 
 - `"range"`: scales by range to within 0 and 1, where the range is from all values from all sites and dates.
 - `"range_bysite"`: scales by range to within 0 and 1 by site, where the range is from values for each site separately.
 ```{r}
-dovars <- colnames( dplyr::select( ddf, -date, -site ) )
-ddf <- ddf %>% add_scaled_rsvi(dovars, method="range")
+dovars <- c("cci", "evi", "ndvi", "NIRv", "pri")
+ddf <- ddf %>%
+  dplyr::select(site, date, one_of(dovars)) %>%
+  add_scaled_rsvi(dovars, method="range_bysite")
 ```
 
 
@@ -72,6 +74,7 @@ Add fLUE data.
 ddf <- read_csv("/alphadata01/bstocker/data/flue/flue_stocker18nphyt.csv") %>% 
   select(site, date, flue, is_flue_drought) %>% 
   right_join(ddf, by=c("site", "date"))
+save(ddf, file = "./data/ddf_v4.Rdata")
 ```
 
 ## Plot time series
@@ -91,7 +94,6 @@ ddf %>%
 
 ```{r}
 ## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
-
 df_flue <- readr::read_csv( "/alphadata01/bstocker/data/flue/flue_stocker18nphyt.csv" ) %>% 
   dplyr::select(-year, -doy, -cluster) %>% 
   dplyr::rename( isevent = is_flue_drought )
@@ -102,35 +104,35 @@ out_align <- align_events(
   select(df_flue, site, date, isevent), 
   dovars, 
   leng_threshold=10, 
-  before=10, after=80, nbins=9
+  before=20, after=80, nbins=10
   )
 ```
 Not clear to me why the curve is not centered around 1 for dday between -10 and 0 (zero-bin). Division by median of value in zero-bin is done in `align_events()`.
 
-## Normalisation
+<!-- ## Normalisation -->
 
-df_flue <-  readr::read_csv("data/flue_stocker18nphyt.csv") %>% 
-  dplyr::select(-year, -doy, -cluster) %>% 
-  dplyr::rename( isevent = is_flue_drought )
+<!-- df_flue <-  readr::read_csv("data/flue_stocker18nphyt.csv") %>%  -->
+<!--   dplyr::select(-year, -doy, -cluster) %>%  -->
+<!--   dplyr::rename( isevent = is_flue_drought ) -->
 
-## Get homogeneous sites:
-homo_sites <- read.csv("data/sites.csv") %>% 
-  rename(site = sitename)  
-homo_sites <- as.character(unique(homo_sites$site))
+<!-- ## Get homogeneous sites: -->
+<!-- homo_sites <- read.csv("data/sites.csv") %>%  -->
+<!--   rename(site = sitename)   -->
+<!-- homo_sites <- as.character(unique(homo_sites$site)) -->
 
-ddf <- ddf[which(ddf$site %in% homo_sites),] %>% ungroup()
+<!-- ddf <- ddf[which(ddf$site %in% homo_sites),] %>% ungroup() -->
 
-## Rearrange data. Function returns list( df_dday, df_dday_aggbydday )
-dovars <- colnames( dplyr::select( ddf, -date, -site ) ) # this does not necessarily work with the data's column names you have in 'ddf'
-# dovars <- colnames(ddf)[3:14]
-out_align <- align_events(ddf, df_flue, dovars, leng_threshold = 10, before=20, after=60, nbins=8, do_norm=FALSE )
+<!-- ## Rearrange data. Function returns list( df_dday, df_dday_aggbydday ) -->
+<!-- dovars <- colnames( dplyr::select( ddf, -date, -site ) ) # this does not necessarily work with the data's column names you have in 'ddf' -->
+<!-- # dovars <- colnames(ddf)[3:14] -->
+<!-- out_align <- align_events(ddf, df_flue, dovars, leng_threshold = 10, before=20, after=60, nbins=8, do_norm=FALSE ) -->
 
 
-Add normalised RSVIs to the full time series, using the median in the zero-bin per site and RSVI. This information is returned by function `align_events()`.
-```{r}
-sdovars <- paste0("s", dovars)
-ddf <- ddf %>% add_normalised_rsvi(sdovars, out_align$norm)
-```
+<!-- Add normalised RSVIs to the full time series, using the median in the zero-bin per site and RSVI. This information is returned by function `align_events()`. -->
+<!-- ```{r} -->
+<!-- sdovars <- paste0("s", dovars) -->
+<!-- ddf <- ddf %>% add_normalised_rsvi(sdovars, out_align$norm) -->
+<!-- ``` -->
 
 
 ## Plots aligned by site
@@ -206,61 +208,61 @@ df_dday_agg_inst_site %>%
   facet_wrap(~rsvi)
 ```
 
-## Next steps
+<!-- ## Next steps -->
 
-- Add vegetation type to data and do evaluations with data aggregated by vegetation type - the way you've done it before.
-- According to this evaluation, CCI and PRI vary very little during drought conditions but are clearly correlated with other RSVIs. Is this correlation affected whether data is in a drought or not? Below a quick look at how EVI and PRI are correlated and how this relationship is affected by the factor `is_flue_drought`. There might be some information here...
-```{r}
-ddf %>% 
-  filter(!is.na(is_flue_drought)) %>% 
-  ggplot(aes(x=evi, y=pri, color=is_flue_drought)) +
-  geom_point(alpha=0.2)
-```
+<!-- - Add vegetation type to data and do evaluations with data aggregated by vegetation type - the way you've done it before. -->
+<!-- - According to this evaluation, CCI and PRI vary very little during drought conditions but are clearly correlated with other RSVIs. Is this correlation affected whether data is in a drought or not? Below a quick look at how EVI and PRI are correlated and how this relationship is affected by the factor `is_flue_drought`. There might be some information here... -->
+<!-- ```{r} -->
+<!-- ddf %>%  -->
+<!--   filter(!is.na(is_flue_drought)) %>%  -->
+<!--   ggplot(aes(x=evi, y=pri, color=is_flue_drought)) + -->
+<!--   geom_point(alpha=0.2) -->
+<!-- ``` -->
 
-- Complement the data with meteorological variables, measured at the FLUXNET sites. 
-```{r}
-load("/Users/benjaminstocker/eval_pmodel/data/obs_eval_NT.Rdata") # adjust path
-ddf <- ddf %>% left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date"))
-```
+<!-- - Complement the data with meteorological variables, measured at the FLUXNET sites.  -->
+<!-- ```{r} -->
+<!-- load("/Users/benjaminstocker/eval_pmodel/data/obs_eval_NT.Rdata") # adjust path -->
+<!-- ddf <- ddf %>% left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) -->
+<!-- ``` -->
 
-- Based on the effect of the factor `is_flue_drought` on the relationship between RSVIs, we may try to predict this factor using the information in RSVIs. Two methods could be tried out:
-  
-  - K-means clustering with `k=2`, then check whether clusters are congruent with `is_flue_drought`. It looks like indeed, most of the drought-days can correctly be identified as such based on the RSVIs:
-```{r}
-ddf_cluster <- ddf %>% 
-  select(is_flue_drought, one_of(dovars)) %>% # Add temperature and PPFD here if you like.
-  drop_na()
-outkmeans <- kmeans( ddf_cluster, 2 )
-ddf_cluster %>% 
-  mutate(cluster=as.factor(outkmeans$cluster-1)) %>%
-  group_by(cluster, is_flue_drought) %>% 
-  summarise(count=n()) %>% 
-  ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) +
-  geom_bar(stat="identity", position=position_dodge())
-```  
+<!-- - Based on the effect of the factor `is_flue_drought` on the relationship between RSVIs, we may try to predict this factor using the information in RSVIs. Two methods could be tried out: -->
 
-It might be worthwhile adding temperature and PPFD in the mix of variables used for K-means clustering. Try it out yourself!
-  - Random-forest, supervised machine-learning with `is_flue_drought` as target and RSVIs (plus possibly other meteorological variables) as predictors. The `caret` R package offers a nice framework to use machine-learning models. Let's speak before diving into this.
-- Look at the mean seasonality. A hypothesis to look at is whether RSVIs co-vary and whether this covariation is affected by the factor `is_flue_drought`. A quick look at that:
-```{r}
-dsdovars <- paste0("d", sdovars)
-tmp <- ddf %>% 
-  filter(site=="FR-Pue") %>% 
-  mutate(doy=lubridate::yday(date)) %>% 
-  group_by(site, doy) %>% 
-  summarise_at(
-    vars("is_flue_drought", one_of(dsdovars)),
-    funs(mean(., na.rm=TRUE)) ) %>% 
-  tidyr::gather("rsvi", "value", c("is_flue_drought", dsdovars))
-  
-ggplot() +
-  # geom_vline(data=filter(tmp, rsvi == "is_flue_drought"), aes(xintercept=doy, alpha=0.5*value), size=0.2) +
-  geom_line(data=filter(tmp, !(rsvi == "is_flue_drought")), aes(x=doy, y=value, color=rsvi))
+<!--   - K-means clustering with `k=2`, then check whether clusters are congruent with `is_flue_drought`. It looks like indeed, most of the drought-days can correctly be identified as such based on the RSVIs: -->
+<!-- ```{r} -->
+<!-- ddf_cluster <- ddf %>%  -->
+<!--   select(is_flue_drought, one_of(dovars)) %>% # Add temperature and PPFD here if you like. -->
+<!--   drop_na() -->
+<!-- outkmeans <- kmeans( ddf_cluster, 2 ) -->
+<!-- ddf_cluster %>%  -->
+<!--   mutate(cluster=as.factor(outkmeans$cluster-1)) %>% -->
+<!--   group_by(cluster, is_flue_drought) %>%  -->
+<!--   summarise(count=n()) %>%  -->
+<!--   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) + -->
+<!--   geom_bar(stat="identity", position=position_dodge()) -->
+<!-- ```   -->
 
-plot_compare(out_align$df_dday_aggbydday, scale = FALSE, method = "zscore")
-# One site
-out <- plot_rsvi_bysite( "FR-Pue", ddf )
-rsvi_sites(out_align$df_dday, name_site="FR-Pue")
+<!-- It might be worthwhile adding temperature and PPFD in the mix of variables used for K-means clustering. Try it out yourself! -->
+<!--   - Random-forest, supervised machine-learning with `is_flue_drought` as target and RSVIs (plus possibly other meteorological variables) as predictors. The `caret` R package offers a nice framework to use machine-learning models. Let's speak before diving into this. -->
+<!-- - Look at the mean seasonality. A hypothesis to look at is whether RSVIs co-vary and whether this covariation is affected by the factor `is_flue_drought`. A quick look at that: -->
+<!-- ```{r} -->
+<!-- dsdovars <- paste0("d", sdovars) -->
+<!-- tmp <- ddf %>%  -->
+<!--   filter(site=="FR-Pue") %>%  -->
+<!--   mutate(doy=lubridate::yday(date)) %>%  -->
+<!--   group_by(site, doy) %>%  -->
+<!--   summarise_at( -->
+<!--     vars("is_flue_drought", one_of(dsdovars)), -->
+<!--     funs(mean(., na.rm=TRUE)) ) %>%  -->
+<!--   tidyr::gather("rsvi", "value", c("is_flue_drought", dsdovars)) -->
 
-```
+<!-- ggplot() + -->
+<!--   # geom_vline(data=filter(tmp, rsvi == "is_flue_drought"), aes(xintercept=doy, alpha=0.5*value), size=0.2) + -->
+<!--   geom_line(data=filter(tmp, !(rsvi == "is_flue_drought")), aes(x=doy, y=value, color=rsvi)) -->
+
+<!-- plot_compare(out_align$df_dday_aggbydday, scale = FALSE, method = "zscore") -->
+<!-- # One site -->
+<!-- out <- plot_rsvi_bysite( "FR-Pue", ddf ) -->
+<!-- rsvi_sites(out_align$df_dday, name_site="FR-Pue") -->
+
+<!-- ``` -->
 

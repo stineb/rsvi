@@ -79,8 +79,9 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
     #   right_join(df_dday, by="site") %>% 
     #   ungroup()
     
+    # Get the median level in the zero-bin for each column and call them d<sRSVI>
     norm <- df_dday %>% group_by( site, inbin ) %>%
-      summarise_at( vars(one_of(sdovars)), funs(median( ., na.rm=TRUE )) ) %>%
+      summarise_at( vars(one_of(sdovars)), list(~median( ., na.rm=TRUE )) ) %>%
       filter( !is.na(inbin) ) %>% 
       filter( grepl(",0]", inbin) ) %>% 
       setNames( c( "site", "inbin", paste0("d", sdovars) ) ) %>% 
@@ -106,7 +107,7 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
       group_by( site, dday ) %>% 
       summarise_at( 
         vars(one_of("flue", dovars, sdovars, dsdovars)), 
-        funs(median( ., na.rm=TRUE), q33( ., na.rm=TRUE), q66( ., na.rm=TRUE) ) )
+        list(~median( ., na.rm=TRUE), ~q33( ., na.rm=TRUE), ~q66( ., na.rm=TRUE) ) )
     
     ##--------------------------------------------------------
     ## Aggregate accross events and sites
@@ -115,7 +116,7 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
       group_by( dday ) %>% 
       summarise_at( 
         vars(one_of("flue", dovars, sdovars, dsdovars)), 
-        funs(median( ., na.rm=TRUE), q33( ., na.rm=TRUE), q66( ., na.rm=TRUE) ) )
+        list(~median( ., na.rm=TRUE), ~q33( ., na.rm=TRUE), ~q66( ., na.rm=TRUE) ) )
 
   } else {
 

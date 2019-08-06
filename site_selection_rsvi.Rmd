@@ -37,7 +37,12 @@ write_csv(df_sub, path = "/alphadata01/bstocker/data/flue/metainfo_sites_cluster
 Get list of sites with homogenous surrounding and subset fLUE sites based on that list
 ```{r}
 df_homo <- read_csv("/alphadata01/bstocker/data/FLUXNET-2015_Tier1/meta/fluxnet_quality_check_homogenous_OK_PRI_mbalzarolo.csv")
-df_sub_homo <- filter( df_sub, sitename %in% df_homo$sitename )
+
+df_flue_sites <- df_flue_sites %>% 
+  mutate(homogenous_mbalzarolo = sitename %in% df_homo$sitename)
+
+df_sub_homo <- df_flue_sites %>% 
+  dplyr::filter( homogenous_mbalzarolo & cluster %in% c("cGR", "cDD", "cLS", "cNA") )
 if (!dir.exists("./data")) system("mkdir data")
-write_csv(df_sub_homo, path = "./data/sites.csv")
+write_csv(df_sub_homo, path = "./data/sites2.csv")
 ```

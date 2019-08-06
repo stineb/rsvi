@@ -3,17 +3,19 @@ require( caret )
 require( tidyverse )
 
 # load data and RF function
-load("data/ddf_v3_flue1.RData")
+load("./data/ddf_v4.Rdata")
 source("wrap_ml.R")
 
-# XXX Question: Can you share the script used for data cleaning?
+# complement info using the meta info of FLUXNET sites provided through rsofun
+ddf <- ddf %>% 
+  left_join(rsofun::metainfo_Tier1_sites_kgclimate_fluxnet2015 %>% select(site=sitename, classid), by = "site")
 
 # Prepare data set
 ddf_rf <- ddf %>% 
   left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
-  mutate (PPFD = ppfd_fluxnet2015 * fapar) %>%  # xxx comment: what you call PPFD here is actually APAR
+  mutate (APAR = ppfd_fluxnet2015 * fapar) %>%  # xxx comment: what you call PPFD here is actually APAR
   filter(!is.na(flue)) %>%
-  select(site, is_flue_drought, flue, dovars, PPFD, temp, classid) %>% 
+  select(site, is_flue_drought, flue, dovars, APAR, temp, classid) %>% 
   mutate(classid=factor(classid), is_flue_drought = factor(is_flue_drought))  %>% 
   drop_na()
   
@@ -23,15 +25,15 @@ ddf_sub <- ddf_rf %>%
   dplyr::filter(site %in% subsites)
 
 # Predictors combinations
-complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "PPFD", "temp", "classid")
+complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
 uno <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv")
-dos <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "PPFD")
-tres <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "PPFD", "temp")
+dos <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR")
+tres <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp")
 # cuatro <- c("ndvi",    "evi")
-# cinco <- c("ndvi",    "evi",  "PPFD", "temp", "classid")
-# seis <- c("pri",    "cci",  "PPFD", "temp", "classid")
+# cinco <- c("ndvi",    "evi",  "APAR", "temp", "classid")
+# seis <- c("pri",    "cci",  "APAR", "temp", "classid")
 nueve <- c("ndvi",    "cci",  "temp", "classid")
-josep <- c("ndvi", "cci", "temp", "PPFD")
+josep <- c("ndvi", "cci", "temp", "APAR")
 
 # Each RSVI alone
 ndvi <- c("ndvi")
@@ -62,7 +64,7 @@ rf_mylgocv <- wrap_ml( df = ddf_sub,
 )
 
 ## "LGOCV" does the same thing as "myLGOCV"
-rf_lgocv <- wrap_ml( df = ddf_sub, 
+rf_lgocv <- wrap_ml( df = ddf_rf, 
                      nam_target = "is_flue_drought", 
                      nam_group = "site",
                      train_method = "LGOCV",
@@ -163,10 +165,7 @@ print(rf_lgocv_class_full$rf$results) # Has lower accuracy: 0.7526834
 ## XXX doesn't work. Better do this "by hand": Look at how model performance changes for different sets of predictors.
 subsets <- complete %>% length() %>% seq() %>% rev()
 sites <- unique(df[[ "site" ]]) # 'nam_group' is site in this case (i.e. split the data by sparing data from one site for testing)
-group_folds <- vector(mode = "list", length = length(sites))
-for (i in seq_along(sites)) group_folds[[i]] <- which(ddf_sub[[nam_group]] != sites[i])
-names(group_folds) <- paste0("Subject", sites)
-
+group_folds <- caret::groupKFold( df[[ nam_group ]], k = length(sites) )
 
 ctrl <- rfeControl(functions = lmFuncs,
                    method = "LGOCV",
