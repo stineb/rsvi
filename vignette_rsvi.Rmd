@@ -39,7 +39,7 @@ library(randomForest)
 
 ## Get data
 
-Load all RSVI data from .Rdata file. Preprocessed by Paula. 
+Load all RSVI data from .Rdata file. Preprocessed by Paula.
 
 - Function "MOD09_MODOC_filter" combines MOD09GA and MODOCGA products for all sites (one CSV for each FLUXNET site) into one. The output is a csv file o it is in "MOD09GA_MODOCGA_filter_indices.Rdata" file (for more information see README - "MODIS Data information")
 
@@ -48,7 +48,7 @@ Load all RSVI data from .Rdata file. Preprocessed by Paula.
 path <-"C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/"
 ## TODO: gather_data() should ideally take the paths to site-specific CSV files that were downloaded by Adria.
 # ddf <- gather_data("/alphadata01/bstocker/data/modis_MOD09GA1km_fluxnet_cutouts/MOD09GA_MODOCGA_filter_indices.RData")
-ddf <- gather_data("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/MOD09GA_MODOCGA_filter_indices.Rdata") %>% 
+ddf <- gather_data("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/MOD09GA_MODOCGA_filter_indices.Rdata", add_scaled = FALSE) %>%
   ungroup()
 ```
 
@@ -56,7 +56,7 @@ ddf <- gather_data("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/MOD0
 
 Subset homogenous sites. Selection of sites is based on whether sites could be allocated to clusters in Stocker et al. (2018) and based on the selection by Manuela Balzarolo (see `site_selection_rsvi.Rmd`).
 ```{r}
-df_homo <- read_csv2("./data/sites_v2.csv")
+df_homo <- read_csv("./data/sites2.csv")
 ddf <- ddf %>% filter( site %in% df_homo$sitename )
 df_homo$sitename
 ```
@@ -67,32 +67,34 @@ Scaling is done with respect to the full time series of the RSVIs, not just the 
 - `"range"`: scales by range to within 0 and 1, where the range is from all values from all sites and dates.
 - `"range_bysite"`: scales by range to within 0 and 1 by site, where the range is from values for each site separately.
 ```{r}
-dovars <- colnames( dplyr::select( ddf, -date, -site ) )
-ddf <- ddf %>% add_scaled_rsvi(dovars, method="range")
+dovars <- c("cci", "evi", "ndvi", "NIRv", "pri")
+ddf <- ddf %>%
+  dplyr::select(site, date, one_of(dovars)) %>%
+  add_scaled_rsvi(dovars, method="range_bysite")
 ```
 ## Complement data
 
 Add fLUE data.
 ```{r}
 ddf <- read_csv("data/flue_stocker18nphyt.csv") %>% #/alphadata01/bstocker/data/flue/ (Benjamin)
-  select(site, date, flue, is_flue_drought) %>% 
+  select(site, date, flue, is_flue_drought) %>%
   right_join(ddf, by=c("site", "date"))
+save(ddf, file = "./data/ddf_v4.Rdata")
 ```
 ## Align by drought event
 ```{r}
 ## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
-
-df_flue <- readr::read_csv("data/flue_stocker18nphyt.csv") %>% #/alphadata01/bstocker/data/flue/ Beni
-  dplyr::select(-year, -doy, -cluster) %>% 
+df_flue <- readr::read_csv( "data/flue/flue_stocker18nphyt.csv" ) %>%
+  dplyr::select(-year, -doy, -cluster) %>%
   dplyr::rename( isevent = is_flue_drought )
 
 ## Rearrange data
-out_align <- align_events( 
-  ddf, 
-  select(df_flue, site, date, isevent), 
-  dovars, 
+out_align <- align_events(
+  ddf,
+  select(df_flue, site, date, isevent),
+  dovars,
   leng_threshold=10, 
-  before=10, after=80, nbins=9
+  before=20, after=80, nbins=10
   )
 
 ##  Raw data, aligned by drought events
@@ -108,20 +110,20 @@ out_align$df_dday %>% #filter(site == sitename) %>%
 #   geom_line(aes(group=inst)) +
 #   theme_bw() +
 #   facet_wrap(~site, scales = "free_y") + ggtitle("sdRSVI")
-# 
+#
 # ##  Raw data, aligned by drought events
 # out_align$df_dday %>% #filter(site == sitename) %>%
 #   ggplot(aes(x=dday, y=ndvi)) +
 #   geom_line(aes(group=inst)) +
 #   facet_wrap(~site, scales = "free_y") + ggtitle("RSVI")
-# 
+#
 # ##  dsRSVI data, aligned by drought events
 # out_align$df_dday %>% #filter(site == sitename) %>%
 #   ggplot(aes(x=dday, y=dsndvi)) +
 #   geom_line(aes(group=inst)) +
 #   theme_bw() +
 #   facet_wrap(~site, scales = "free_y") + ggtitle("sdRSVI")
-# 
+#
 # out_align$df_dday %>% #filter(site == sitename) %>%
 #   ggplot(aes(x=flue, y=ndvi)) +
 #   geom_point(aes(group=inst)) +
@@ -131,31 +133,31 @@ out_align$df_dday %>% #filter(site == sitename) %>%
 ```
 Not clear to me why the curve is not centered around 1 for dday between -10 and 0 (zero-bin). Division by median of value in zero-bin is done in `align_events()`.
 
-## Normalisation
+<!-- ## Normalisation -->
 
-df_flue <-  readr::read_csv("data/flue_stocker18nphyt.csv") %>%
-  dplyr::select(-year, -doy, -cluster) %>%
-  dplyr::rename( isevent = is_flue_drought )
+<!-- df_flue <-  readr::read_csv("data/flue_stocker18nphyt.csv") %>%  -->
+<!--   dplyr::select(-year, -doy, -cluster) %>%  -->
+<!--   dplyr::rename( isevent = is_flue_drought ) -->
 
-## Get homogeneous sites:
-homo_sites <- read.csv("data/sites.csv") %>%
-  rename(site = sitename)
-homo_sites <- as.character(unique(homo_sites$site))
+<!-- ## Get homogeneous sites: -->
+<!-- homo_sites <- read.csv("data/sites.csv") %>%  -->
+<!--   rename(site = sitename)   -->
+<!-- homo_sites <- as.character(unique(homo_sites$site)) -->
 
-ddf <- ddf[which(ddf$site %in% homo_sites),] %>% ungroup()
+<!-- ddf <- ddf[which(ddf$site %in% homo_sites),] %>% ungroup() -->
 
-## Rearrange data. 
-Function returns list( df_dday, df_dday_aggbydday )
-dovars <- colnames( dplyr::select( ddf, -date, -site ) ) # this does not necessarily work with the data's column names you have in 'ddf'
+<!-- ## Rearrange data. Function returns list( df_dday, df_dday_aggbydday ) -->
+<!-- dovars <- colnames( dplyr::select( ddf, -date, -site ) ) # this does not necessarily work with the data's column names you have in 'ddf' -->
+<!-- # dovars <- colnames(ddf)[3:14] -->
+<!-- out_align <- align_events(ddf, df_flue, dovars, leng_threshold = 10, before=20, after=60, nbins=8, do_norm=FALSE ) -->
 
 out_align <- align_events(ddf, df_flue, dovars, leng_threshold = 10, before=20, after=60, nbins=8, do_norm=FALSE )
 
-Add normalised RSVIs to the full time series, using the median in the zero-bin per site and RSVI. This information is returned by function `align_events()`.
-
-```{r}
-sdovars <- paste0("s", dovars)
-ddf <- ddf %>% add_normalised_rsvi(sdovars, out_align$norm) 
-```
+<!-- Add normalised RSVIs to the full time series, using the median in the zero-bin per site and RSVI. This information is returned by function `align_events()`. -->
+<!-- ```{r} -->
+<!-- sdovars <- paste0("s", dovars) -->
+<!-- ddf <- ddf %>% add_normalised_rsvi(sdovars, out_align$norm) -->
+<!-- ``` -->
 
 
 ## Plots aligned by site
@@ -163,25 +165,25 @@ ddf <- ddf %>% add_normalised_rsvi(sdovars, out_align$norm)
 Data is aggregated across multiple drought events (column `inst`).
 ```{r}
 median <- out_align$df_dday_agg_inst %>%
-  select(site, dday, ends_with("median")) %>% 
-  tidyr::gather(rsvi, median, ends_with("median")) %>% 
+  select(site, dday, ends_with("median")) %>%
+  tidyr::gather(rsvi, median, ends_with("median")) %>%
   mutate(rsvi=stringr::str_replace(rsvi, "_median", "") )
 q33 <- out_align$df_dday_agg_inst %>%
-  select(site, dday, ends_with("q33")) %>% 
-  tidyr::gather(rsvi, q33, ends_with("q33")) %>% 
+  select(site, dday, ends_with("q33")) %>%
+  tidyr::gather(rsvi, q33, ends_with("q33")) %>%
   mutate(rsvi=stringr::str_replace(rsvi, "_q33", "") )
 q66 <- out_align$df_dday_agg_inst %>%
-  select(site, dday, ends_with("q66")) %>% 
-  tidyr::gather(rsvi, q66, ends_with("q66")) %>% 
+  select(site, dday, ends_with("q66")) %>%
+  tidyr::gather(rsvi, q66, ends_with("q66")) %>%
   mutate(rsvi=stringr::str_replace(rsvi, "_q66", "") )
 df_dday_agg_inst <- median %>%
-  left_join(q33, by=c("site","dday", "rsvi")) %>% 
+  left_join(q33, by=c("site","dday", "rsvi")) %>%
   left_join(q66, by=c("site","dday", "rsvi"))
 
 ## Example for one site
-df_dday_agg_inst %>% 
-  filter(site=="US-SRM") %>% 
-  filter(rsvi %in% c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv")) %>% 
+df_dday_agg_inst %>%
+  filter(site=="US-SRM") %>%
+  filter(rsvi %in% c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv")) %>%
   ggplot(aes(x=dday, y=median)) +
   geom_line() +
   labs(x="Day after drought onset", y="Unitless") + ggtitle("US-SRM") +
@@ -195,24 +197,24 @@ df_dday_agg_inst %>%
 Absolute values, aggregated across sites and events
 ```{r}
 median <- out_align$df_dday_agg_inst_site %>%
-  select(dday, ends_with("median")) %>% 
-  tidyr::gather(rsvi, median, ends_with("median")) %>% 
+  select(dday, ends_with("median")) %>%
+  tidyr::gather(rsvi, median, ends_with("median")) %>%
   mutate(rsvi=stringr::str_replace(rsvi, "_median", "") )
 q33 <- out_align$df_dday_agg_inst_site %>%
-  select(dday, ends_with("q33")) %>% 
-  tidyr::gather(rsvi, q33, ends_with("q33")) %>% 
+  select(dday, ends_with("q33")) %>%
+  tidyr::gather(rsvi, q33, ends_with("q33")) %>%
   mutate(rsvi=stringr::str_replace(rsvi, "_q33", "") )
 q66 <- out_align$df_dday_agg_inst_site %>%
-  select(dday, ends_with("q66")) %>% 
-  tidyr::gather(rsvi, q66, ends_with("q66")) %>% 
+  select(dday, ends_with("q66")) %>%
+  tidyr::gather(rsvi, q66, ends_with("q66")) %>%
   mutate(rsvi=stringr::str_replace(rsvi, "_q66", "") )
 df_dday_agg_inst_site <- median %>%
-  left_join(q33, by=c("dday", "rsvi")) %>% 
+  left_join(q33, by=c("dday", "rsvi")) %>%
   left_join(q66, by=c("dday", "rsvi"))
 
-df_dday_agg_inst_site %>% 
-  filter(rsvi %in% c("flue","ndvi", "evi", "cci", "pri", "NIRv")) %>% 
-      mutate(rsvi=factor(rsvi,levels=c("flue","ndvi", "evi", "cci", "pri", "NIRv")))  %>% 
+df_dday_agg_inst_site %>%
+  filter(rsvi %in% c("flue","ndvi", "evi", "cci", "pri", "NIRv")) %>%
+      mutate(rsvi=factor(rsvi,levels=c("flue","ndvi", "evi", "cci", "pri", "NIRv")))  %>%
   ggplot(aes(x=dday, y=median)) +
   theme_classic() +
   geom_line(aes(color=rsvi)) +
@@ -222,9 +224,9 @@ df_dday_agg_inst_site %>%
   scale_fill_brewer(palette="Dark2") +
   facet_wrap(~rsvi, scales = "free_y")
 
-df_dday_agg_inst_site %>% 
-  filter(rsvi %in% c("flue","sndvi", "sevi", "scci", "spri", "sNIRv")) %>% 
-    mutate(rsvi=factor(rsvi,levels=c("flue","sndvi", "sevi", "scci", "spri", "sNIRv"))) %>% 
+df_dday_agg_inst_site %>%
+  filter(rsvi %in% c("flue","sndvi", "sevi", "scci", "spri", "sNIRv")) %>%
+    mutate(rsvi=factor(rsvi,levels=c("flue","sndvi", "sevi", "scci", "spri", "sNIRv"))) %>%
   ggplot(aes(x=dday, y=median)) +
   geom_line(aes(color=rsvi)) +
   theme_classic() +
@@ -234,9 +236,9 @@ df_dday_agg_inst_site %>%
   scale_fill_brewer(palette="Dark2") +
   facet_wrap(~rsvi, scales = "free_y")
 
-df_dday_agg_inst_site %>% 
-  filter(rsvi %in% c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv")) %>% 
-      mutate(rsvi=factor(rsvi,levels=c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv"))) %>% 
+df_dday_agg_inst_site %>%
+  filter(rsvi %in% c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv")) %>%
+      mutate(rsvi=factor(rsvi,levels=c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv"))) %>%
   ggplot(aes(x=dday, y=median)) +
   geom_hline(yintercept=1,col="gray") +
   theme_classic() +
@@ -252,7 +254,7 @@ df_dday_agg_inst_site %>%
     theme(axis.text=element_text(size=12, color="black"),
         axis.title=element_text(size=14),
         panel.border = element_rect(colour = "black", fill=NA),
-        legend.position = "none", legend.title = element_blank()) 
+        legend.position = "none", legend.title = element_blank())
 
 ```
 
@@ -263,31 +265,31 @@ df_dday_agg_inst_site %>%
 load(paste(path,"metainfo_sites_fluxnet2015.Rdata",sep=""))
 metainfo_sites_fluxnet2015 <- as_tibble(metainfo_sites_fluxnet2015)
 
-## Complement the data with meteorological variables, measured at the FLUXNET sites. 
+## Complement the data with meteorological variables, measured at the FLUXNET sites.
 load("data/obs_eval_NT.Rdata") # adjust path /Users/benjaminstocker/eval_pmodel/
 
 # set of RSVI:
 vars <- c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv")
 vars_names <- c("flue","dsNDVI", "dsEVI", "dsCCI", "dsPRI", "dsNIRv")
 
-df_dday_agg_inst_veg <- merge(df_dday_agg_inst, metainfo_sites_fluxnet2015[,c(1,5)], by.x="site", by.y="mysitename") 
+df_dday_agg_inst_veg <- merge(df_dday_agg_inst, metainfo_sites_fluxnet2015[,c(1,5)], by.x="site", by.y="mysitename")
 
-## Join SAV + WSA 
+## Join SAV + WSA
 df_dday_agg_inst_veg$classid[df_dday_agg_inst_veg$classid == "WSA"] <- "SAV"
 
 nclass <- unique(df_dday_agg_inst_veg$classid)
 
 # Median by classid (nomalized on 1)
-df_dday_agg_inst_veg %>%  group_by( dday, classid, rsvi ) %>% 
+df_dday_agg_inst_veg %>%  group_by( dday, classid, rsvi ) %>%
   summarise_at( vars(one_of("median","q33","q66")), funs(median( ., na.rm=TRUE))) %>%
   filter( !is.na( dday ) ) %>%
-  filter(rsvi %in% vars) %>% 
-      mutate(rsvi=factor(rsvi,levels=vars)) %>% 
+  filter(rsvi %in% vars) %>%
+      mutate(rsvi=factor(rsvi,levels=vars)) %>%
   ggplot(aes(x=dday, y=median, group=classid)) + # If we want the different sites: ,group=site
   geom_vline(xintercept=0,col="gray") + geom_hline(yintercept=1,col="gray") +
   geom_line(aes(color=rsvi)) + geom_ribbon(aes(ymin=q33, ymax=q66, fill=rsvi), alpha=0.35) +
-  # xlim(-10, 40) + 
-  theme_classic() + 
+  # xlim(-10, 40) +
+  theme_classic() +
   scale_color_brewer(palette="Dark2") +
   scale_fill_brewer(palette="Dark2") +
   theme(axis.text=element_text(size=12, color="black"),
@@ -295,13 +297,13 @@ df_dday_agg_inst_veg %>%  group_by( dday, classid, rsvi ) %>%
         panel.border = element_rect(colour = "black", fill=NA),
         legend.position = "none", legend.title = element_blank()) +
     annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .15) +
-  facet_grid(rsvi~classid) + #,  scales = "free_y" / 
+  facet_grid(rsvi~classid) + #,  scales = "free_y" /
   labs(x="Day after drought onset", y="Unitless")
 
 # All sites
-# df_dday_agg_inst_veg %>% 
-#   filter(rsvi %in% vars) %>% 
-#       mutate(rsvi=factor(rsvi,levels=vars)) %>% 
+# df_dday_agg_inst_veg %>%
+#   filter(rsvi %in% vars) %>%
+#       mutate(rsvi=factor(rsvi,levels=vars)) %>%
 #   ggplot(aes(x=dday, y=median, group=site)) + # If we want the different sites: ,group=site
 #   geom_hline(yintercept=1,col="gray") + geom_vline(xintercept=0,col="gray") +
 #   labs(x="Day after drought onset", y="Unitless") +
@@ -310,245 +312,64 @@ df_dday_agg_inst_veg %>%  group_by( dday, classid, rsvi ) %>%
 #   scale_fill_brewer(palette="Dark2") +
 #   geom_ribbon(aes(ymin=q33, ymax=q66), alpha=0.3) +
 #   # xlim(-10, 40) +
-#   theme_classic() + 
+#   theme_classic() +
 #   facet_grid(rsvi~classid,  scales = "free_y")
 ```
 
-```{r}
-# Median by classid (nomalized on 1) and by site
-df_dday_agg_inst_veg %>%  group_by( dday, classid, rsvi ) %>% 
-  summarise_at( vars(one_of("median","q33","q66")), funs(median( ., na.rm=TRUE))) %>%
-  filter( !is.na( dday ) ) %>%
-  filter(rsvi %in% vars) %>% 
-      mutate(rsvi=factor(rsvi,levels=vars)) %>% 
-  ggplot(aes(x=dday, y=median, group=rsvi, color=rsvi)) + # If we want the different sites: ,group=site
-  geom_vline(xintercept=0,col="gray") + geom_hline(yintercept=1,col="gray") +
-  geom_line() + # geom_ribbon(aes(ymin=q33, ymax=q66), alpha=0.3) +
-  # xlim(-10, 40) + 
-   scale_color_brewer(palette="Dark2") +
-  annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .15) +
-  theme_classic() +
-  facet_wrap(~classid) +
-  labs(x="Day after drought onset", y="Unitless")
+<!-- ## Next steps -->
 
-```
-## Join SAV + WSA
-- Complement the data with vegetation class
-```{r}
-# vegetation
-metainfo_sites_fluxnet2015 <- metainfo_sites_fluxnet2015 %>% rename(site=mysitename)
+<!-- - Add vegetation type to data and do evaluations with data aggregated by vegetation type - the way you've done it before. -->
+<!-- - According to this evaluation, CCI and PRI vary very little during drought conditions but are clearly correlated with other RSVIs. Is this correlation affected whether data is in a drought or not? Below a quick look at how EVI and PRI are correlated and how this relationship is affected by the factor `is_flue_drought`. There might be some information here... -->
+<!-- ```{r} -->
+<!-- ddf %>%  -->
+<!--   filter(!is.na(is_flue_drought)) %>%  -->
+<!--   ggplot(aes(x=evi, y=pri, color=is_flue_drought)) + -->
+<!--   geom_point(alpha=0.2) -->
+<!-- ``` -->
 
-ddf <- ddf %>% 
-  inner_join(metainfo_sites_fluxnet2015[,c(1,5)], by="site") 
+<!-- - Complement the data with meteorological variables, measured at the FLUXNET sites.  -->
+<!-- ```{r} -->
+<!-- load("/Users/benjaminstocker/eval_pmodel/data/obs_eval_NT.Rdata") # adjust path -->
+<!-- ddf <- ddf %>% left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) -->
+<!-- ``` -->
 
-## Join SAV + WSA 
-ddf$classid[ddf$classid == "WSA"] <- "SAV"
-```
+<!-- - Based on the effect of the factor `is_flue_drought` on the relationship between RSVIs, we may try to predict this factor using the information in RSVIs. Two methods could be tried out: -->
 
-## Drought vs No-Drought days
-- According to this evaluation, CCI and PRI vary very little during drought conditions but are clearly correlated with other RSVIs. Is this correlation affected whether data is in a drought or not? Below a quick look at how EVI and PRI are correlated and how this relationship is affected by the factor `is_flue_drought`. There might be some information here...
-```{r}
-day <- c("TRUE" = "Drought",
-         "FALSE" = "No-Drought")
+<!--   - K-means clustering with `k=2`, then check whether clusters are congruent with `is_flue_drought`. It looks like indeed, most of the drought-days can correctly be identified as such based on the RSVIs: -->
+<!-- ```{r} -->
+<!-- ddf_cluster <- ddf %>%  -->
+<!--   select(is_flue_drought, one_of(dovars)) %>% # Add temperature and PPFD here if you like. -->
+<!--   drop_na() -->
+<!-- outkmeans <- kmeans( ddf_cluster, 2 ) -->
+<!-- ddf_cluster %>%  -->
+<!--   mutate(cluster=as.factor(outkmeans$cluster-1)) %>% -->
+<!--   group_by(cluster, is_flue_drought) %>%  -->
+<!--   summarise(count=n()) %>%  -->
+<!--   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) + -->
+<!--   geom_bar(stat="identity", position=position_dodge()) -->
+<!-- ```   -->
 
-ddf %>% 
-  filter(!is.na(is_flue_drought)) %>% 
-  ggplot(aes(x=ndvi, y=cci, color=is_flue_drought)) +
-  scale_colour_discrete(name  = NULL) +
-  theme_bw() + facet_grid(classid~is_flue_drought, labeller = labeller(is_flue_drought = as_labeller(day))) +
-  labs(x="NDVI", y="CCI") +
-  geom_point(alpha=0.2) + scale_color_brewer(palette="Dark2")
+<!-- It might be worthwhile adding temperature and PPFD in the mix of variables used for K-means clustering. Try it out yourself! -->
+<!--   - Random-forest, supervised machine-learning with `is_flue_drought` as target and RSVIs (plus possibly other meteorological variables) as predictors. The `caret` R package offers a nice framework to use machine-learning models. Let's speak before diving into this. -->
+<!-- - Look at the mean seasonality. A hypothesis to look at is whether RSVIs co-vary and whether this covariation is affected by the factor `is_flue_drought`. A quick look at that: -->
+<!-- ```{r} -->
+<!-- dsdovars <- paste0("d", sdovars) -->
+<!-- tmp <- ddf %>%  -->
+<!--   filter(site=="FR-Pue") %>%  -->
+<!--   mutate(doy=lubridate::yday(date)) %>%  -->
+<!--   group_by(site, doy) %>%  -->
+<!--   summarise_at( -->
+<!--     vars("is_flue_drought", one_of(dsdovars)), -->
+<!--     funs(mean(., na.rm=TRUE)) ) %>%  -->
+<!--   tidyr::gather("rsvi", "value", c("is_flue_drought", dsdovars)) -->
 
-ddf %>% 
-  filter(!is.na(is_flue_drought)) %>% 
-  ggplot(aes(x=ndvi, y=pri, color=is_flue_drought)) +
-  scale_colour_discrete(name  = NULL) +
-  theme_bw() + facet_grid(classid~is_flue_drought, labeller = labeller(is_flue_drought = as_labeller(day))) +
-  labs(x="NDVI", y="PRI") +
-  geom_point(alpha=0.2) + scale_color_brewer(palette="Dark2")
+<!-- ggplot() + -->
+<!--   # geom_vline(data=filter(tmp, rsvi == "is_flue_drought"), aes(xintercept=doy, alpha=0.5*value), size=0.2) + -->
+<!--   geom_line(data=filter(tmp, !(rsvi == "is_flue_drought")), aes(x=doy, y=value, color=rsvi)) -->
 
-ddf %>% 
-  filter(!is.na(is_flue_drought)) %>% 
-  ggplot(aes(x=ndvi, y=NIRv, color=is_flue_drought)) +
-  scale_colour_discrete(name = NULL) +
-  theme_bw() + facet_grid(classid~is_flue_drought, labeller = labeller(is_flue_drought = as_labeller(day))) +
-  labs(x="NDVI", y="NIRv") +
-  geom_point(alpha=0.2) + scale_color_brewer(palette="Dark2")
+<!-- plot_compare(out_align$df_dday_aggbydday, scale = FALSE, method = "zscore") -->
+<!-- # One site -->
+<!-- out <- plot_rsvi_bysite( "FR-Pue", ddf ) -->
+<!-- rsvi_sites(out_align$df_dday, name_site="FR-Pue") -->
 
-ddf %>% 
-  filter(!is.na(is_flue_drought)) %>% 
-  ggplot(aes(x=ndvi, y=evi, color=is_flue_drought)) +
-  scale_colour_discrete(name  = NULL) +
-  theme_bw() + facet_grid(classid~is_flue_drought, labeller = labeller(is_flue_drought = as_labeller(day))) +
-  labs(x="NDVI", y="EVI") +
-  geom_point(alpha=0.2) + scale_color_brewer(palette="Dark2")
-
-```
-
-- Cluster with meteorological variables
-```{r}
-# ddf %>% 
-#   filter(!is.na(is_flue_drought)) %>% 
-#   ggplot(aes(x=ndvi, y=pri, color=is_flue_drought)) +
-#     scale_colour_discrete(name  ="Is fLUE Drought?",
-#                             labels=c("No Drought","Drought")) +
-#   geom_point(alpha=0.2) + scale_color_brewer(palette="Dark2") + theme_bw()
-```
-
-## Index vs Index: pdf saved, it has problems here
-```{r}
-# Temperature filter (<5ºC) and aggregated by vegetation type
-# ddf_veg <- ddf %>% 
-#   left_join(rename(metainfo_sites_fluxnet2015[,c(1,5)], site=mysitename), by="site")
-# 
-# nclass <- unique(ddf_veg$classid)
-# Index_vs_Index_isEvent() 
-```
-
-## Plot time series with all predictors
-- Complement data with meteorological variables, measured at the FLUXNET sites
-
-Interesting: There is quite a trend in these indices, here for the site FR-Pue.
-```{r}
-# Filtered sites: final selection (19)
-sitios <-c("AR-Vir", "AU-Ade", "AU-ASM", "AU-DaP", "AU-DaS", "AU-Dry", "AU-Stp", "AU-Whr",
-           "DE-Hai", "FR-LBr", "FR-Pue", "IT-Cpz", "IT-Ro1", "IT-SRo", "RU-Fyo", "SD-Dem",
-           "US-SRG", "US-SRM", "US-WCr")
-
-# pdf(paste("Times_series.pdf",sep=""),width=10.84,height=5.30)
-# for(i in 1:length(unique(sitios))){
-i <- 11 # Nice Time series
-sitename <- sitios[i]
-ddfsite <- ddf %>% filter(site == sitename) %>%
-left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
-    mutate (PPFD = ppfd_fluxnet2015 * fapar) 
-
-class<- unique(ddfsite$classid)
-
-flue_droughts <-  get_consecutive(ddfsite$is_flue_drought) 
-if (nrow(flue_droughts)>0) {
-flue_droughts$date_start <- ddfsite$date[flue_droughts$idx_start]
-flue_droughts <- flue_droughts %>%  mutate(date_end = date_start + len) 
-
-ts <- ddfsite %>% 
-  tidyr::gather(variables, value, c(flue, ndvi, evi, cci, pri, NIRv,temp,PPFD)) %>% 
-  filter(site==sitename) %>% 
-  mutate(variables=factor(variables,levels=c("flue","ndvi", "evi", "cci", "pri", "NIRv","temp","PPFD"))) %>% 
-  filter(!is.na(variables))
-
-# New facet label names for dose variable
-dose.labs <- c("flue" = "fLUE",
-               "ndvi" = "NDVI",
-               "evi" = "EVI",
-               "cci" = "CCI",
-               "pri" = "PRI",
-               "NIRv" = "NIRv",
-               "temp" = "Temp",
-               "PPFD" = "APAR")
-
-# Zoom where flue data is available
-# flue_dates <- ts %>% filter(variables=="flue") %>% select(date) %>% unlist()
-# flue_dates <- c(flue_dates[1],flue_dates[length(flue_dates)])
-
-print(ggplot(ts, aes(x=date, y=value)) +
-    facet_grid(rows=vars(variables), scales = "free_y", labeller = as_labeller(dose.labs)) +
-    geom_rect(
-    data = flue_droughts, 
-    aes(x = NULL,y = NULL, xmin=date_start, xmax=date_end, ymin=-Inf, ymax=Inf),
-    fill=("gray"), alpha=0.7, #rgb(0,0,0,0.3) #"#e8c745"
-    color=NA) +
-  geom_line() + theme_classic() + ggtitle(paste(sitename,class,sep=" - ")) +
-  scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date"))
-}else{
- print(ggplot(ts, aes(x=date, y=value)) +
-    facet_grid(rows=vars(variables), scales = "free_y")  +
-  geom_line() + theme_bw() + ggtitle(sitename)  +
-  scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date"))
-}
-
-# }
-# dev.off()
-```
-
-## K-means clustering
-- Based on the effect of the factor `is_flue_drought` on the relationship between RSVIs, we may try to predict this factor using the information in RSVIs. Two methods could be tried out:
-  
-    - K-means clustering with `k=2`, then check whether clusters are congruent with `is_flue_drought`. It looks like indeed, most of the drought-days can correctly be identified as such based on the RSVIs:
-```{r}
-# ddf_cluster <- ddf %>%
-#   filter(!is.na(flue)) %>%
-#   select(is_flue_drought, one_of(dovars)) %>% # Add temperature and PPFD here if you like. 
-#   drop_na()
-# outkmeans <- kmeans( ddf_cluster, 2 )
-# ddf_cluster %>% 
-#   mutate(cluster=as.factor(outkmeans$cluster-1)) %>%
-#   group_by(cluster, is_flue_drought) %>% 
-#   summarise(count=n()) %>% 
-#   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) + theme_bw() +
-#   geom_bar(stat="identity", position=position_dodge()) +  scale_fill_brewer(palette="Dark2")
-``` 
-K-means clustering with 2 clusters of sizes 12556, 4104
-Within cluster sum of squares by cluster:
-[1] 2042414851 2163736469
- (between_SS / total_SS =  67.9 %)
-
-Adding temperature and PPFD (PPFDxfAPAR to get the "absorbed" light, not incident light)) in the mix of variables used for K-means but the proportions didn't in each cluster change
-```{r}
-# ddf_cluster <- ddf %>%
-#   filter(!is.na(flue)) %>%
-#   mutate (PPFD = ppfd_fluxnet2015 * fapar) %>%
-#   select(is_flue_drought, dovars, PPFD, temp, prec_fluxnet2015) %>% 
-#   drop_na()
-# outkmeans <- kmeans( ddf_cluster, 2 )
-# ddf_cluster %>% 
-#   mutate(cluster=as.factor(outkmeans$cluster-1)) %>%
-#   group_by(cluster, is_flue_drought) %>% 
-#   summarise(count=n()) %>% 
-#   ggplot(aes(x=cluster, y=count, fill=is_flue_drought)) +
-#   geom_bar(stat="identity", position=position_dodge()) 
-```  
-Within cluster sum of squares by cluster:
-[1] 2042414851 2163736469
- (between_SS / total_SS =  67.9 %)
- 
- 
-  - Random-forest, supervised machine-learning with `is_flue_drought` as target and RSVIs (plus other meteorological variables) as predictors. The `caret` R package offers a nice framework to use machine-learning models. 
-  
-## RANDOM FOREST and NEURAL NETWORKS
-```{r}
-
-# source(for_randomForest_Categorical_bs_pc.R)
-
-```
-
-
-## Mean seasonality
-- Look at the mean seasonality. A hypothesis to look at is whether RSVIs co-vary and whether this covariation is affected by the factor `is_flue_drought`. A quick look at that:
-```{r}
-
-dsdovars <- paste0("d", sdovars)
-
-# for (i in 1:length(unique(ddf$site))){
-# sitename <- unique(ddf$site)[i]
-# tmp <- ddf %>% 
-#   filter(site==sitename) %>% 
-#   mutate(doy=lubridate::yday(date)) %>% 
-#   group_by(site, doy) %>% 
-#   summarise_at(
-#     vars("is_flue_drought", one_of(dsdovars)),
-#     funs(mean(., na.rm=TRUE)) ) %>% 
-#   tidyr::gather("rsvi", "value", c("is_flue_drought", dsdovars))
-# 
-# print(ggplot() +
-#   geom_vline(data=filter(tmp, rsvi == "is_flue_drought"), aes(xintercept=doy, alpha=0.5*value), size=0.2) +
-#   geom_line(data=filter(tmp, !(rsvi == "is_flue_drought")), aes(x=doy, y=value, color=rsvi), size=1) +
-#     ggtitle(sitename) + 
-#   theme_bw())
-# }
-# plot_compare(out_align$df_dday_aggbydday, scale = FALSE, method = "zscore")
-# # One site
-# out <- plot_rsvi_bysite( "FR-Pue", ddf )
-# rsvi_sites(out_align$df_dday, name_site="FR-Pue")
-
-```
-
+<!-- ``` -->
