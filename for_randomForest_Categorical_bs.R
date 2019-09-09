@@ -10,20 +10,6 @@ source("wrap_ml.R")
 ddf <- ddf %>% 
   left_join(rsofun::metainfo_Tier1_sites_kgclimate_fluxnet2015 %>% select(site=sitename, classid), by = "site")
 
-# Prepare data set
-ddf_rf <- ddf %>% 
-  left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
-  mutate (APAR = ppfd_fluxnet2015 * fapar) %>%  # xxx comment: what you call PPFD here is actually APAR
-  filter(!is.na(flue)) %>%
-  select(site, is_flue_drought, flue, dovars, APAR, temp, classid) %>% 
-  mutate(classid=factor(classid), is_flue_drought = factor(is_flue_drought))  %>% 
-  drop_na()
-  
-# XXX Test: Take only subset for testing
-subsites <- ddf_rf$site %>% unique() %>% head(4)
-ddf_sub <- ddf_rf %>% 
-  dplyr::filter(site %in% subsites)
-
 # Predictors combinations
 complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
 uno <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv")
@@ -45,10 +31,25 @@ NIRv <- c("NIRv")
 predictores <-list(complete, uno, nueve, ndvi, evi, cci, pri, NIRv)
 
 # Select sites (homogeneous and with drought periods)
+# XXX update this with new site selection XXX
 sitios <- c("AR-Vir", "AU-Ade", "AU-ASM", "AU-DaP", "AU-DaS", "AU-Dry", "AU-Stp", "AU-Whr",
             "DE-Hai", "FR-LBr", "FR-Pue", "IT-Cpz", "IT-Ro1", "IT-SRo", "RU-Fyo", "SD-Dem",
             "US-SRG", "US-SRM", "US-WCr")
 
+# Prepare data set: complement with fluxnet-provided variables
+load("~/eval_pmodel/data/v3/obs_eval_NT.Rdata")
+ddf_rf <- ddf %>% 
+  left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
+  mutate (APAR = ppfd_fluxnet2015 * fapar) %>%  # xxx comment: what you call PPFD here is actually APAR
+  filter(!is.na(flue)) %>%
+  select(site, is_flue_drought, flue, complete, APAR, temp, classid) %>% 
+  mutate(classid=factor(classid), is_flue_drought = factor(is_flue_drought))  %>% 
+  drop_na()
+  
+# XXX Test: Take only subset for testing
+subsites <- ddf_rf$site %>% unique() %>% head(4)
+ddf_sub <- ddf_rf %>% 
+  dplyr::filter(site %in% subsites)
 
 ##----------------------------------
 ## Classification
@@ -57,6 +58,7 @@ sitios <- c("AR-Vir", "AU-Ade", "AU-ASM", "AU-DaP", "AU-DaS", "AU-Dry", "AU-Stp"
 rf_mylgocv <- wrap_ml( df = ddf_sub, 
                        nam_target = "is_flue_drought", 
                        nam_group = "site",
+                       method = "nnet",
                        train_method = "myLGOCV",
                        predictors = predictores[[1]],  # use double square bracket here to access element of list
                        tune = FALSE,
@@ -64,9 +66,10 @@ rf_mylgocv <- wrap_ml( df = ddf_sub,
 )
 
 ## "LGOCV" does the same thing as "myLGOCV"
-rf_lgocv <- wrap_ml( df = ddf_rf, 
+rf_lgocv <- wrap_ml( df = ddf_sub, 
                      nam_target = "is_flue_drought", 
                      nam_group = "site",
+                     method = "nnet",
                      train_method = "LGOCV",
                      predictors = predictores[[1]],  # use double square bracket here to access element of list
                      tune = FALSE,
@@ -86,7 +89,7 @@ print(paste("Mean accuracy across leave-site-out models:", purrr::map_dbl(rf_lgo
 get_modobs <- function(df){
   tibble(mod = as.vector(df$pred), obs = df$obs)
 }
-list_modobs_listmodels <- purrr::map(rf_mylgocv$list_rf, ~get_modobs(.))
+list_modobs_listmodels <- purrr::map(rf_lgocv$list_rf, ~get_modobs(.))
 
 calc_performance <- function(df){
   df_sum <- df %>% 
@@ -126,14 +129,14 @@ cm <- confusionMatrix( data = as.factor(df_modobs_listmodels$mod),
                        reference = as.factor(df_modobs_listmodels$obs) )
 
 ## Show results for each site (prediction trained at all other sites)
-vec_acc <- purrr::map_dbl(rf_mylgocv$list_rf, "myresults")
-df_acc <- tibble(site = sites, accuracy = vec_acc )
+vec_acc <- purrr::map_dbl(rf_lgocv$list_rf, "myresults")
+df_acc <- tibble(site = names(rf_lgocv$list_rf), accuracy = vec_acc )
 print("Accuracy for each site (prediction trained at all other sites):")
 print(df_acc)
 
 ## Get variable importance (see https://topepo.github.io/caret/variable-importance.html)
-var_imp <- varImp(rf_mylgocv$rf)
-list_var_imp <- purrr::map(rf_mylgocv$list_rf, ~varImp(.))
+var_imp <- varImp(rf_lgocv$rf)
+list_var_imp <- purrr::map(rf_lgocv$list_rf, ~varImp(.))
 
 ## let's try now for the full dataset and josep's suggested predictors - for NN only because it's faster and better!!!
 rf_lgocv_class_full <- wrap_ml( df = ddf_rf, 
@@ -163,14 +166,14 @@ print(rf_lgocv_class_full$rf$results) # Has lower accuracy: 0.7526834
 
 ## Recursive feature elimination (see https://topepo.github.io/caret/recursive-feature-elimination.html)
 ## XXX doesn't work. Better do this "by hand": Look at how model performance changes for different sets of predictors.
-subsets <- complete %>% length() %>% seq() %>% rev()
-sites <- unique(df[[ "site" ]]) # 'nam_group' is site in this case (i.e. split the data by sparing data from one site for testing)
-group_folds <- caret::groupKFold( df[[ nam_group ]], k = length(sites) )
+subsets <- predictores[[1]] %>% length() %>% seq() %>% rev()
+sites <- unique(ddf_rf[[ "site" ]]) # 'nam_group' is site in this case (i.e. split the data by sparing data from one site for testing)
+group_folds <- caret::groupKFold( ddf_rf[[ "site" ]], k = length(sites) )
 
 ctrl <- rfeControl(functions = lmFuncs,
                    method = "LGOCV",
                    index = group_folds,
-                   repeats = 5,
+                   repeats = 1,
                    verbose = FALSE
                    )
 
@@ -178,7 +181,7 @@ forml  <- as.formula(  paste( "is_flue_drought", "~", paste( complete, collapse=
 
 set.seed(10)
 lmProfile <- caret::rfe( forml, 
-                         ddf_sub,
+                         ddf_rf,
                          sizes = subsets,
                          rfeControl = ctrl
                          )
