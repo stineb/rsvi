@@ -1,7 +1,8 @@
 # RANDOM FOREST FUNCTION
 # XXX comment: argument declaration should use values directly, not objects
 wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method="myLGOCV", 
-                    method = "rf", tune = FALSE, seed = 1982, classification = TRUE, inner = FALSE){
+                    method = "rf", tune = FALSE, seed = 1982, classification = TRUE, inner = FALSE,
+                    all = FALSE){
   
   # Construct formula
   forml  <- as.formula(  paste( nam_target, "~", paste( predictors, collapse=" + " ) ) )
@@ -104,7 +105,11 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
       
       # split data
       df_train <-  df %>% dplyr::filter(site != isite)
-      df_test <- df %>% dplyr::filter(site == isite)
+      if (all){
+        df_test <- df
+      } else {
+        df_test <- df %>% dplyr::filter(site == isite)
+      }
       
       # train
       sites <- df_train[[ nam_group ]] %>% unique()
@@ -134,14 +139,33 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
       
       # summarise
       if (classification){
-        df_sum <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
-          dplyr::mutate(good = obs==mod) %>% 
-          dplyr::summarise(good = sum(good))
-        rf$myresults <- df_sum$good / nrow(df_test)
+        
+        ## calculate confusion matrix and add to output
+        df_tmp <- tibble(
+          obs = as.factor(df_test[[nam_target]]), 
+          mod = as.factor(as.vector(rf$pred))
+          )
+        rf$cm <- confusionMatrix( data = df_tmp$mod, reference = df_tmp$obs )
+        
+        ## get Accuracy
+        rf$myaccuracy <- rf$cm$overall["Accuracy"]
+        
+        ## get Kappa
+        rf$mykappa <- rf$cm$overall["Kappa"]
+        
       } else {
-        df_sum <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
-          rbeni::analyse_modobs2(mod = "mod", obs = "obs")
-        rf$myresults <- sqrt( mean( ( df_sum$mod - df_sum$obs )^2 ) )
+        
+        ## calculate RMSE
+        rf$myrmse <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
+          yardstick::rmse(obs, mod) %>% 
+          dplyr::select(.estimate) %>% 
+          dplyr::pull()
+
+        ## calculate R-squared
+        rf$myrsq <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
+          yardstick::rsq(obs, mod) %>% 
+          dplyr::select(.estimate) %>% 
+          dplyr::pull()
         
       }
       
@@ -150,6 +174,60 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
     
     list_rf <- purrr::map(as.list(sites), ~wrap_ml_inner(df, rf, predictors, nam_target, forml, .))
     names(list_rf) <- sites
+    
+    ## Follow "Gavin method": 
+    ## produce a model ensemble where each model is trained on a slightly different dataset due to the different
+    ## LOSO groups (this part is done inside the inner loop), then we take the median prediction of the ensemble 
+    ## as the best for the flux.
+    
+    ## Now, average across predictions (take most frequent for categorical variables)
+    if (classification){
+      ## Categorical data
+      get_mod_from_inner <- function(rf){
+        out <- tibble(mod = as.logical(rf$pred))
+        return(out)
+      }
+      get_most_frequent <- function(vec){
+        ## warning: if equal number of times false and true, then false is returned
+        out <- sort(table(vec), decreasing=TRUE)[1] %>% 
+          names() %>% 
+          as.logical()
+        return(out)
+      }
+      df_gavin <- purrr::map_dfc(list_rf, ~get_mod_from_inner(.)) %>% 
+        mutate(mod_average = apply(., 1, get_most_frequent)) %>% 
+        mutate(obs = list_rf[[1]]$obs )
+      rf$pred_median_inner <- df_gavin$mod_average
+      
+      ## evaluate, based on confusion matrix
+      rf$cm_median_inner <- confusionMatrix( 
+        data = as.factor(df_gavin$mod_average), 
+        reference = as.factor(df_gavin$obs) )
+      
+    } else {
+      ## Continuous data
+      get_modobs_from_inner <- function(rf){
+        out <- tibble(mod = rf$pred, obs = rf$obs)
+        return(out)
+      }
+      df_gavin <- purrr::map_dfc(list_rf, ~get_modobs_from_inner(.)) %>% 
+        mutate(mod_average = apply(., 1, median)) %>% 
+        mutate(obs = list_rf[[1]]$obs )
+
+      ## calculate RMSE
+      rf$myrmse <- df_gavin %>% 
+        yardstick::rmse(obs, mod_average) %>% 
+        dplyr::select(.estimate) %>% 
+        dplyr::pull()
+      
+      ## calculate R-squared
+      rf$myrsq <- df_gavin %>% 
+        yardstick::rsq(obs, mod_average) %>% 
+        dplyr::select(.estimate) %>% 
+        dplyr::pull()
+      
+    }
+    
     
   } else {
     
