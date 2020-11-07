@@ -1,9 +1,13 @@
+MOD09_MODOC_filter <- function(path_files=path, QC500_filter=TRUE){
+
 library(lubridate)
 library(tidyverse)
 library(binaryLogic)
 
 #### MODIS productos MOD09GA and MODOCGA by site#####
-
+  path <- "C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/"
+  path0 <- path
+  
 # Filter data:
 # Adrià: "Como bien dices, los bits 12 a 19 de la banda QC_b8_15_1km tienen que ser iguales a 0. 
 # Estos son flags específicos de las bandas 11 y 12 (para el cálculo del PRI). 
@@ -11,16 +15,14 @@ library(binaryLogic)
 # Una vez aplicado este filtro, se aplica otro filtro con los bits 0  1  2  8  9  10  12  y 13 de la banda state_1km. 
 # Dicho de otro modo, el filtro de state_1km se aplica a todas las bandas, tanto del producto MODOCGA como MOD09GA".
 
-# ¿Filter by QC_500m?
-decision_QC_500m <- "no"
+# ¿Filter by QC_500m? true
 
-#### New data set MODOCGA and MOD09GA ####
+
 # Creates a unique data frame: 
 # READ DATA (.RData) LINE 35 with the "data/MODOCGA_MOD09GA_1km_raw.Rdata" with the output of this lines ("data")
-path <- ("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/")
-files <- list.files(path, full.names = T)
+files <- list.files(path0, full.names = T)
 lfiles <- length(files)
-namefiles <- list.files(path, full.names = F)
+namefiles <- list.files(path0, full.names = F)
 namesites <- substr(namefiles,1,6)
 
 # Raw data
@@ -35,11 +37,6 @@ for (i in 1:lfiles){
 # load("data/MODOCGA_MOD09GA_1km_raw.Rdata")
 data <- as_tibble(data)  %>% 
   mutate_at(.vars = vars(matches("sur_refl", ignore.case=FALSE)),funs(as.numeric)) # Si es necesario, a veces lee csv como character
-            
-
-# "scale factor" <- no necesario, está incluído en el cálculo de los índices, cuando es necesario
-# data <- data0  %>% mutate_at(.vars = vars(matches("sur_refl", ignore.case=FALSE)),funs(.*0.0001))
-#  mutate_each(funs(.*0.0001), starts_with(""sur_refl"))
 
 ####  MOD09 ####
 mod09 <- data %>% select(YY, MM, DD,  site_num, sites_id, QC_500m, state_1km, sur_refl_b01, sur_refl_b02, sur_refl_b03, sur_refl_b04, sur_refl_b05, sur_refl_b06, sur_refl_b07) 
@@ -64,18 +61,21 @@ for(i in QC_Data_500$Integer_Value){
 }
 
 ##### FILTER DATA
-if(decision_QC_500m == "yes"){
+if( QC500_filter){
 # Filter by QC_500m
 my_data <- as_tibble(QC_Data_500)
 
 # columns with the bits of interest: bit 2:9
 b1 <- c(28:31) 
 b2 <- c(24:27)
+b3 <- c(20:23)
 filter_qflags_qc_b1 <- my_data %>% select(1,b1) %>% filter_at(vars(-Integer_Value), all_vars(.== 0)) %>% select(1)
 filter_qflags_qc_b2 <- my_data %>% select(1,b2) %>% filter_at(vars(-Integer_Value), all_vars(.== 0)) %>% select(1)
+filter_qflags_qc_b3 <- my_data %>% select(1,b3) %>% filter_at(vars(-Integer_Value), all_vars(.== 0)) %>% select(1)
 
 mod09$sur_refl_b01[!mod09$QC_500m %in% filter_qflags_qc_b1$Integer_Value] <- NA
 mod09$sur_refl_b02[!mod09$QC_500m %in% filter_qflags_qc_b2$Integer_Value] <- NA
+mod09$sur_refl_b03[!mod09$QC_500m %in% filter_qflags_qc_b3$Integer_Value] <- NA
 }
 
 #### MODOC ####
@@ -102,7 +102,7 @@ for(i in as.numeric(QC_Data$Integer_Value)){
 # Filter QC_Data
 my_data <- as_tibble(QC_Data)
 
-# columns with the bits of the bands (bits Nº12 to 19):
+# columns with the bits of the bands (bits Nº12 to 19): 12-15b11, 16-19 b12
 b11 <- c(18:21) 
 b12 <- c(14:17)
 filter_qflags_qc_b11 <- my_data %>% select(1,b11) %>% filter_at(vars(-Integer_Value), all_vars(.== 0)) %>% select(1)
@@ -131,18 +131,18 @@ for(i in state_Data$Integer_Value){
 }
 
 my_data <- as_tibble(state_Data)
-bits <- c(4,5,7:9,15:17)
+bits <- c(4,5,7:9,15:17) # 0  1  2  8  9  10  12  y 13
 filter_qflags <- my_data %>% select(1,bits) %>% filter_at(vars(-Integer_Value), all_vars(.== 0)) %>% select(1)
 
-filter_state_data <-filter_data %>% filter_at(vars(state_1km), all_vars(.%in% filter_qflags$Integer_Value))
+filter_state_data <- filter_data %>% filter_at(vars(state_1km), all_vars(.%in% filter_qflags$Integer_Value))
 
-# Create Indices: NDVI, EVI, NIRv, CCI, PRI
-filter_state_data <- filter_state_data %>% 
-  mutate(ndvi = (sur_refl_b02 - sur_refl_b01)/(sur_refl_b02 + sur_refl_b01)) %>%  
-  mutate(evi = 2.5 * (sur_refl_b02 * 0.0001 - sur_refl_b01 * 0.0001) / (sur_refl_b02 * 0.0001 + 6 * sur_refl_b01 * 0.0001 - 7.5 * sur_refl_b03* 0.0001 + 1)) %>% 
-  mutate(NIRv = ndvi * sur_refl_b02) %>%  #NIR 
-  mutate(cci = (sur_refl_b11 - sur_refl_b01)/(sur_refl_b11 + sur_refl_b01)) %>%
-  mutate(pri = (sur_refl_b11 - sur_refl_b12)/(sur_refl_b11 + sur_refl_b12))
+### Create Indices: NDVI, EVI, NIRv, CCI, PRI
+filter_state_data <- filter_state_data %>%
+  mutate(ndvi = (sur_refl_b02 * 0.0001 - sur_refl_b01 * 0.0001)/(sur_refl_b02 * 0.0001 + sur_refl_b01 * 0.0001)) %>%
+  mutate(evi = 2.5 * (sur_refl_b02 * 0.0001 - sur_refl_b01 * 0.0001) / (sur_refl_b02 * 0.0001 + 6 * sur_refl_b01 * 0.0001 - 7.5 * sur_refl_b03* 0.0001 + 1)) %>%
+  mutate(NIRv = ndvi * (sur_refl_b02 * 0.0001)) %>%  #NIR
+  mutate(cci = (sur_refl_b11 * 0.0001 - sur_refl_b01 * 0.0001)/(sur_refl_b11 * 0.0001 + sur_refl_b01 * 0.0001)) %>%
+  mutate(pri = (sur_refl_b11 * 0.0001 - sur_refl_b12 * 0.0001)/(sur_refl_b11 * 0.0001 + sur_refl_b12 * 0.0001))
   # mutate(sPRI = (pri +1 )/2)  # %>%  # PRI solo escalado (0-1)
   # sPRIn: PRI normalizado by APAR y escalado (0-1) (Vicca 2016)
   # mutate(PRIn = PRI - PRI0) %>%  # PRI0 = the intercept of PRI vs APAR for a two-month window
@@ -151,7 +151,5 @@ filter_state_data <- filter_state_data %>%
 # Generate a CSV and a RData file
 # write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_indices.csv", row.names=FALSE)
 
-# No filtering by QC_500m:
-# write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_onlyState1km_indices.csv", row.names=FALSE)
-
-#### DIFERENCIA DE FILTROS ####
+return(filter_state_data)
+}

@@ -1,0 +1,305 @@
+---
+title: "RSVI_v2"
+author: "Paula and Beni"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+# output:
+#   pdf_document:
+#     toc: true
+#     toc_depth: 2
+header-includes:
+   - \usepackage{amsmath}
+# bibliography: bibliography.bib
+---
+
+```{r}
+source("MOD09_MODOC_filter.R")
+source("remove_outliers.R")
+source("gather_data.R")
+
+library(dplyr)
+library(lubridate)
+library(readr)
+library(ggplot2)
+library(caret)
+library(tidyverse)
+```
+
+# Simple version
+- Load data and trains a model (one for the regression, and one for the classification) with all available predictors.
+Drought prediction: Run from line 115
+
+
+# Gather data: site-specific CSV files downloaded by Adria
+- Function "MOD09_MODOC_filter" combines MOD09GA and MODOCGA products for all sites (one CSV for each FLUXNET site) into one. The output is a csv file o it is in "MOD09GA_MODOCGA_filter_indices.Rdata" file (for more information see README - "MODIS Data information")
+```{r}
+raw <- "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/"
+ddf <- MOD09_MODOC_filter(path_files=raw, QC500_filter="no")
+ddf <- gather_data(ddf, add_scaled = FALSE, file="df") %>% ungroup()
+
+# or load:
+# ddf <- gather_data("./data/MOD09GA_MODOCGA_filter_indices.Rdata", add_scaled = FALSE) %>% ungroup()
+```
+
+## Site selection
+Subset homogenous sites. Selection of sites is based on whether sites could be allocated to clusters in Stocker et al. (2018) and based on the selection by Manuela Balzarolo (see `site_selection_rsvi.Rmd`).
+```{r}
+df_homo <- read_csv("./data/sites2.csv")
+ddf <- ddf %>% filter( site %in% df_homo$sitename )
+df_homo$sitename
+
+dovars <- c("cci", "evi", "ndvi", "NIRv", "pri")
+
+ddf <- ddf %>%
+  dplyr::select(site, date, one_of(dovars))
+```
+
+
+## Complement data
+
+Add fLUE data.
+```{r}
+## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
+ddf <- read_csv("data/flue_stocker18nphyt.csv") %>% 
+  select(site, date, flue, is_flue_drought) %>%
+  right_join(ddf, by=c("site", "date"))
+# save(ddf, file = "./data/ddf_v5.Rdata")
+```
+
+
+# Drought prediction
+Neural network: Supervised machine learning methodology for each classification (drought or non-drought) and regression models
+
+## Load Data
+Preprocessed data (subset for homogeneous sites, filtered by quality, merged with flue data and towres data)
+```{r}
+ # Shortcut N2:
+ # load("./data/ddf_v5.Rdata")
+ load("./data/metainfo_Tier1_sites_kgclimate_fluxnet2015.Rdata")
+ load("./data/obs_eval_NT.Rdata") #
+```
+
+## Tidy data
+Complement info using the meta info of FLUXNET sites provided through rsofun.
+Includes temperature, APAR, and select only 5 vegetation classes. Clean database, no NA
+
+```{r}
+
+# Vegetation classes
+ cv <- c("ENF","DBF","GRA","EBF","SAV")
+
+ ddf_nn <- ddf %>%
+   left_join(metainfo_Tier1_sites_kgclimate_fluxnet2015 %>% select(site=sitename, classid), by = "site") %>%
+   left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
+   mutate (APAR = ppfd_fluxnet2015 * fapar) %>%
+   filter(!is.na(flue)) %>%
+   select(date, site, is_flue_drought, flue, all_of(dovars), APAR, temp, classid) %>%
+   mutate(classid=factor(classid), is_flue_drought = factor(is_flue_drought))  %>%
+   drop_na()
+ 
+  # Subset ONLY 5 classes (cv)
+ ddf_nn$classid[ddf_nn$classid=="WSA"] <- "SAV"
+ ddf_sub <- ddf_nn %>%
+   filter(classid %in% cv) %>% droplevels()
+
+ sites <- ddf_sub$site %>% unique()
+```
+
+# Predictors and data ready to train (ddf_sub)
+```{r}
+ # Shortcut N3:
+ load("./data/ddf_sub.Rdata")
+ complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
+```
+
+Machine learning function and plot function 
+```{r}
+ source("wrap_ml.R")
+ source("analyse_modobs2.R")
+```
+
+# **Drought classification**
+Predictions of drought or non-drought days
+
+```{r}
+
+rf_lgocv <- wrap_ml( df = ddf_sub,
+                                nam_target = "is_flue_drought",
+                                nam_group = "site",
+                                method =  "nnet",
+                                train_method = "LGOCV",
+                                predictors = complete,
+                                tune = FALSE,#TRUE,
+                                inner = TRUE,
+                                classification = TRUE
+)
+save(rf_lgocv , file = "./data/2020/NN_isFlue_complete.Rdata")
+
+# load("./data/2020/NN_isFlue_complete.Rdata")
+
+print(rf_lgocv$rf$results) # Promising: has accuracy of 0.81.
+print(paste("Accuracy of main model:", rf_lgocv$rf$results$Accuracy))
+print(paste("Mean accuracy across leave-site-out models:", purrr::map_dbl(rf_lgocv$list_rf, "myresults") %>% mean()))
+```
+
+## Evaluation classification: 
+Models were trained by leave-group-out cross-validation (LGOCV)  that places data for a specific site either entirely in the training or entirely in the validation set.  
+
+## - Global confusion matrix
+Includes results from all LGOCV (Accuracy, Kappa, Sensitivity, Specificity).
+```{r}
+get_modobs <- function(df){
+  tibble(mod = as.vector(df$pred), obs = df$obs)
+}
+list_modobs_listmodels <- purrr::map(rf_lgocv$list_rf, ~get_modobs(.))
+
+
+cm_simple <- list_modobs_listmodels %>% bind_rows() %>% table()
+df_modobs_listmodels <- list_modobs_listmodels %>% bind_rows()
+cm <- confusionMatrix( data = as.factor(df_modobs_listmodels$mod),
+                       reference = as.factor(df_modobs_listmodels$obs), positive="TRUE")
+
+source('ConfusionMatrix.R')
+draw_confusion_matrix(cm)
+
+```
+
+
+## - Local confusion matrix 
+Includes results for each site. Creates a Df with outputs of every single model
+
+```{r}
+lgocv <- data.frame(matrix(0, ncol = 4, nrow = length(rf_lgocv$list_rf)))
+
+for (i in 1: length(rf_lgocv$list_rf)){
+  nn <- rf_lgocv$list_rf[[i]]
+ 
+  df_tmp <- tibble(
+  obs = as.factor(nn$obs), 
+  mod = as.factor(as.vector(nn$pred) )
+  )
+ 
+cm <- confusionMatrix( data = df_tmp$mod, reference = df_tmp$obs, positive ="TRUE" )
+
+## get Accuracy
+myaccuracy <- cm$overall["Accuracy"]
+## get Kappa
+mykappa <- cm$overall["Kappa"]
+mysensit <- cm$byClass["Sensitivity"]
+myspec <- cm$byClass["Specificity"]
+
+lgocv[i,] <- c(myaccuracy, mykappa, mysensit, myspec)
+ 
+}
+colnames(lgocv) <- c("Accuracy","Kappa","Sensitivity","Specificity")
+lgocv$site <- sites
+
+```
+
+
+# **Drought magnitude**
+Prediction of fLUE value 
+
+```{r}
+rf_lgocv_flue <- wrap_ml( df = ddf_sub,
+                          method = "nnet",
+                          nam_target = "flue",
+                          nam_group = "site",
+                          train_method = "LGOCV",
+                          predictors = complete,
+                          tune = FALSE, #TRUE,
+                          inner = TRUE,
+                          classification = FALSE
+)
+
+save(rf_lgocv_flue , file = "./data/2020/NN_Flue_complete.Rdata")
+# load("./data/2020/NN_Flue_complete.Rdata")
+
+print(paste("Results of main model:"))
+print(rf_lgocv_flue$rf$results)   # RMSE 0.1765139   R2 0.3186167
+
+```
+
+## Evaluation regression:
+## - Global regression
+A unique value that characterizes accuracy for all models (trained by LGOCV)
+The performance of the pooled model (shown here) is not the same as the mean across individual models from left-out sites.
+```{r}
+
+get_modobs <- function(df){
+  tibble(mod = as.vector(df$pred), obs = df$obs)
+}
+list_modobs_listmodels <- purrr::map(rf_lgocv_flue$list_rf, ~get_modobs(.))
+out_modobs <- list_modobs_listmodels %>%
+  bind_rows %>%
+  analyse_modobs2(mod = "mod", obs = "obs")
+out_modobs$gg
+ 
+## This gives almost the same results as the summary of the main model
+# results_by_listmodels <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
+#   purrr::map_dfr(., "results") %>%
+#   dplyr::summarise_all(.funs = mean)
+
+# This way works for me:
+results_by_listmodels <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
+  purrr::map_dfr(., "df_metrics") %>% data.frame() %>% filter(.metric == "rsq") %>%
+  select( .estimate ) %>% filter(!is.na(.estimate)) %>%
+  dplyr::summarise_all(.funs = mean)
+
+print(results_by_listmodels)
+print(rf_lgocv_flue$rf$results)
+
+```
+
+## - Local regressions
+Evaluation for each individual model
+```{r}
+
+# Rsq for each site
+metric  <- "rsq" # slope, rmse, rsq
+results_by_site <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
+  purrr::map_dfr(., "df_metrics") %>% data.frame() %>% filter(.metric == metric) %>% # 
+  select( .estimate )
+
+print(results_by_site)
+
+# significance por each site
+pvalue <- NULL
+results_by_site <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.))
+
+for (i in 1: length(list_modobs_listmodels)){
+  lm <- results_by_site[[i]]
+  sum <- summary(lm$linmod)
+  # print(sum)
+  p <- sum$coefficients[[8]]
+  pvalue <- rbind(pvalue, p)
+}
+
+```
+
+## - Example: Time series (mod-obs)
+```{r}
+#### One Site time series: ###
+sitename <- "FR-Pue"
+one <- list_modobs_listmodels$`FR-Pue`
+ts_one <- ddf %>% filter(site == sitename ) %>% left_join(rename(one, flue=obs), by="flue") %>%
+  select(site, date, flue, is_flue_drought, mod)
+
+library(reshape2)
+ts <- melt(ts_one,id.vars = c("site","date","is_flue_drought"), measure.vars = c("flue", "mod") )
+print(ggplot(ts, aes(x=date, y=value, group=variable)) +
+        geom_line(aes(color=variable)) +
+        scale_color_manual(values=c("black","red"),
+                           name = NULL, labels = c("Observed fLUE","Predicted fLUE")) +
+        theme_classic() + ggtitle(sitename)  +
+        labs(x="Date", y="Unitless") +
+        theme(axis.text=element_text(size=12, color="black"),
+              axis.title=element_text(size=14),
+              panel.border = element_rect(colour = "black", fill=NA)) +
+        scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date"))
+
+```
