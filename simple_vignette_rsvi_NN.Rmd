@@ -31,7 +31,7 @@ library(tidyverse)
 
 # Simple version
 - Load data and trains a model (one for the regression, and one for the classification) with all available predictors.
-Drought prediction: Run from line 119
+Drought prediction: Run from line 115
 
 
 # Gather data: site-specific CSV files downloaded by Adria
