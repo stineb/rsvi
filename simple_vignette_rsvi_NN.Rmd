@@ -90,7 +90,7 @@ Preprocessed data (subset for homogeneous sites, filtered by quality and merged 
 
 ## Tidy data
 Complement info using the meta info of FLUXNET sites provided through rsofun.
-Includes temperature, APAR, and select only 5 vegetation classes
+Includes temperature, APAR, and select only 5 vegetation classes. Clean database, no NA
 
 ```{r}
 
@@ -115,8 +115,6 @@ Includes temperature, APAR, and select only 5 vegetation classes
 ```
 
 ## Predictors
-Predictors combinations
-
 ```{r}
  complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
 ```
@@ -170,7 +168,7 @@ draw_confusion_matrix(cm)
 
 
 ## - Local confusion matrix 
-Includes results for each site 
+Includes results for each site. Creates a Df with outputs of every single model
 
 ```{r}
 lgocv <- data.frame(matrix(0, ncol = 4, nrow = length(rf_lgocv$list_rf)))
