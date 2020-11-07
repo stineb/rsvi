@@ -30,7 +30,8 @@ library(tidyverse)
 ```
 
 # Simple version
-- Load data and trains a model (one for the regression, and one for the classification) with all available predictors
+- Load data and trains a model (one for the regression, and one for the classification) with all available predictors.
+Drought prediction: Run from line 119
 
 
 # Gather data: site-specific CSV files downloaded by Adria
@@ -73,14 +74,8 @@ ddf <- read_csv("data/flue_stocker18nphyt.csv") %>%
 # Drought prediction
 Neural network: Supervised machine learning methodology for each classification (drought or non-drought) and regression models
 
-Machine learning function and plot function 
-```{r}
- source("wrap_ml.R")
- source("analyse_modobs2.R")
-```
-
 ## Load Data
-Preprocessed data (subset for homogeneous sites, filtered by quality and merged with flue data and )
+Preprocessed data (subset for homogeneous sites, filtered by quality, merged with flue data and towres data)
 ```{r}
  # Shortcut N2:
  # load("./data/ddf_v5.Rdata")
@@ -114,11 +109,18 @@ Includes temperature, APAR, and select only 5 vegetation classes. Clean database
  sites <- ddf_sub$site %>% unique()
 ```
 
-## Predictors
+# Predictors and data ready to train (ddf_sub)
 ```{r}
+ # Shortcut N3:
+ load("./data/ddf_sub.Rdata")
  complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
 ```
 
+Machine learning function and plot function 
+```{r}
+ source("wrap_ml.R")
+ source("analyse_modobs2.R")
+```
 
 # **Drought classification**
 Predictions of drought or non-drought days
