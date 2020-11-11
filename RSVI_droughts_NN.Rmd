@@ -1,0 +1,1027 @@
+---
+title: "RSVI"
+author: "Paula and Beni"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+# output:
+#   pdf_document:
+#     toc: true
+#     toc_depth: 2
+header-includes:
+   - \usepackage{amsmath}
+# bibliography: bibliography.bib
+---
+
+```{r}
+source("MOD09_MODOC_filter.R")
+source("remove_outliers.R")
+source("gather_data.R")
+source("align_events.R")
+source("rsvi_sites.R")
+source("add_scaled_rsvi.R")
+source("add_normalised_rsvi.R")
+source("get_consecutive.R")
+
+library(dplyr)
+library(lubridate)
+library(readr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+```
+
+## Gather data: site-specific CSV files downloaded by Adria
+- Function "MOD09_MODOC_filter" combines MOD09GA and MODOCGA products for all sites (one CSV for each FLUXNET site) into one. The output is a csv file o it is in "MOD09GA_MODOCGA_filter_indices.Rdata" file (for more information see README - "MODIS Data information")
+```{r}
+# path <- "C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/"
+# filter <- MOD09_MODOC_filter(path_files=path, QC500_filter=TRUE)
+# ddf <- gather_data(df, add_scaled = FALSE, file="df") %>% ungroup()
+```
+
+## Get data
+
+Load all RSVI data from .Rdata file. Preprocessed by Paula.
+```{r}
+## change path to file by hand here
+path <-"C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/"
+# ddf <- gather_data("/alphadata01/bstocker/data/modis_MOD09GA1km_fluxnet_cutouts/MOD09GA_MODOCGA_filter_indices.RData")
+ddf <- gather_data("C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/MOD09GA_MODOCGA_filter_indicesv2.Rdata", add_scaled = FALSE) %>%
+  ungroup()
+```
+
+## Site selection
+
+Subset homogenous sites. Selection of sites is based on whether sites could be allocated to clusters in Stocker et al. (2018) and based on the selection by Manuela Balzarolo (see `site_selection_rsvi.Rmd`).
+```{r}
+df_homo <- read_csv("./data/sites2.csv")
+# ddf <- ddf %>% filter( site %in% df_homo$sitename )
+# df_homo$sitename
+
+## Exclude sites from MF and CRO.
+
+final_sites <-c("AR-Vir", "AU-Ade", "AU-ASM", "AU-DaP", "AU-DaS", "AU-Dry", "AU-Stp", "AU-Wom", "DE-Obe", "DE-Tha", "FI-Hyy","FR-Fon", "FR-LBr", "FR-Pue", "IT-Cpz", "IT-Ro1", "IT-SRo", "NL-Loo", "RU-Fyo", "SD-Dem", "US-Ha1", "US-MMS", "US-SRG", "US-SRM", "US-UMB", "US-UMd")
+
+ddf <- ddf %>% filter( site %in% final_sites )
+```
+## Scaling
+
+Scaling is done with respect to the full time series of the RSVIs, not just the subset of data points just before and during drought events. Two methods are implemented:
+
+- `"range"`: scales by range to within 0 and 1, where the range is from all values from all sites and dates.
+- `"range_bysite"`: scales by range to within 0 and 1 by site, where the range is from values for each site separately.
+```{r}
+dovars <- c("cci", "evi", "ndvi", "NIRv", "pri")
+ddf <- ddf %>%
+  dplyr::select(site, date, one_of(dovars)) %>%
+  add_scaled_rsvi(dovars, method="range_bysite") 
+```
+## Complement data
+
+Add fLUE data.
+```{r}
+## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
+ddf <- read_csv("data/flue_stocker18nphyt.csv") %>% #/alphadata01/bstocker/data/flue/ (Benjamin)
+  select(site, date, flue, is_flue_drought) %>%
+  right_join(ddf, by=c("site", "date"))
+# save(ddf, file = "./data/ddf_v4.Rdata")
+```
+
+## Align by drought event
+```{r}
+## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
+df_flue <- readr::read_csv( "data/flue_stocker18nphyt.csv" ) %>%
+  dplyr::select(-year, -doy, -cluster) %>%
+  dplyr::rename( isevent = is_flue_drought )
+
+# ONLY 5 classes:
+subveg <- c("GRA","SAV","DBF","EBF","ENF")
+
+# XXX I've changed align_events because flue data was already on ddf
+ddf1 <- ddf %>% dplyr::rename( isevent = is_flue_drought )
+
+## Rearrange data
+out_align <- align_events(
+  ddf1,
+  select(df_flue, site, date, isevent),
+  dovars,
+  leng_threshold=10, 
+  before=20, after=80, nbins=10
+  )
+
+## Plots
+# ##  Raw data, aligned by drought events
+# out_align$df_dday %>% #filter(site == sitename) %>%
+#   ggplot(aes(x=dday, y=ndvi)) +
+#   geom_line(aes(group=inst)) +
+#   theme_bw() +
+#   facet_wrap(~site, scales = "free_y") + ggtitle("RSVI")
+# 
+# ##  dsRSVI data, aligned by drought events
+# out_align$df_dday %>% #filter(site == sitename) %>%
+#   ggplot(aes(x=flue, y=ndvi)) +
+#   geom_point(aes(group=inst)) +
+#   theme_bw() +
+#   facet_wrap(~site, scales = "free_y") + ggtitle("sdRSVI")
+
+```
+Not clear to me why the curve is not centered around 1 for dday between -10 and 0 (zero-bin). Division by median of value in zero-bin is done in `align_events()`.
+
+## Plots aligned by site
+
+Data is aggregated across multiple drought events (column `inst`).
+```{r}
+median <- out_align$df_dday_agg_inst %>%
+  select(site, dday, ends_with("median")) %>%
+  tidyr::gather(rsvi, median, ends_with("median")) %>%
+  mutate(rsvi=stringr::str_replace(rsvi, "_median", "") )
+q33 <- out_align$df_dday_agg_inst %>%
+  select(site, dday, ends_with("q33")) %>%
+  tidyr::gather(rsvi, q33, ends_with("q33")) %>%
+  mutate(rsvi=stringr::str_replace(rsvi, "_q33", "") )
+q66 <- out_align$df_dday_agg_inst %>%
+  select(site, dday, ends_with("q66")) %>%
+  tidyr::gather(rsvi, q66, ends_with("q66")) %>%
+  mutate(rsvi=stringr::str_replace(rsvi, "_q66", "") )
+df_dday_agg_inst <- median %>%
+  left_join(q33, by=c("site","dday", "rsvi")) %>%
+  left_join(q66, by=c("site","dday", "rsvi"))
+
+## Example for one site
+name_site <- "AU-DaP"
+
+df_dday_agg_inst %>%
+  filter(site==name_site) %>%
+  filter(rsvi %in% c("flue","sndvi", "sevi", "scci", "spri", "sNIRv")) %>%
+  ggplot(aes(x=dday, y=median)) +
+  geom_line() + theme_classic() +
+  labs(x="Day after drought onset", y="Unitless") + ggtitle(name_site) +
+  geom_ribbon(aes(ymin=q33, ymax=q66), alpha=0.3) +
+  facet_wrap( ~ rsvi)
+```
+
+
+## Plot aligned and aggregated sites
+
+Absolute values, aggregated across sites and events
+```{r}
+median <- out_align$df_dday_agg_inst_site %>%
+  select(dday, ends_with("median")) %>%
+  tidyr::gather(rsvi, median, ends_with("median")) %>%
+  mutate(rsvi=stringr::str_replace(rsvi, "_median", "") )
+q33 <- out_align$df_dday_agg_inst_site %>%
+  select(dday, ends_with("q33")) %>%
+  tidyr::gather(rsvi, q33, ends_with("q33")) %>%
+  mutate(rsvi=stringr::str_replace(rsvi, "_q33", "") )
+q66 <- out_align$df_dday_agg_inst_site %>%
+  select(dday, ends_with("q66")) %>%
+  tidyr::gather(rsvi, q66, ends_with("q66")) %>%
+  mutate(rsvi=stringr::str_replace(rsvi, "_q66", "") )
+df_dday_agg_inst_site <- median %>%
+  left_join(q33, by=c("dday", "rsvi")) %>%
+  left_join(q66, by=c("dday", "rsvi"))
+
+df_dday_agg_inst_site %>%
+     filter(rsvi %in% c("flue")) %>% # "flue",
+     mutate(rsvi=factor(rsvi,levels=c("flue"))) %>% #"flue"
+     ggplot(aes(x=dday, y=median)) +
+     geom_hline(yintercept=1,col="gray") +
+     theme_classic() +
+     annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .25)  +
+     # annotate("rect", xmin = 20, xmax = 40, ymin = -Inf, ymax = Inf, alpha = .25)  +
+   # annotate("rect", xmin = 40, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .10)  +
+     geom_line(aes(color=rsvi)) +
+     labs(x="Day after drought onset", y="Unitless") +
+     geom_ribbon(aes(ymin=q33, ymax=q66, fill=rsvi), alpha=0.3) +
+     scale_color_brewer(palette="Dark2") +
+     scale_fill_brewer(palette="Dark2") +
+     scale_y_continuous(breaks = c(0,0.5,1)) +
+     scale_x_continuous(limits = c(-10,75)) +
+     theme_classic() +
+     theme(axis.text=element_text(size=12, color="black"),
+           axis.title=element_text(size=14),
+           panel.border = element_rect(colour = "black", fill=NA),
+           legend.position="none") 
+```
+
+## Plot RSVI - fLUE
+```{r}
+# RSVI
+df_dday_agg_inst_site %>%
+  filter(rsvi %in% c("flue","ndvi", "evi", "cci", "pri", "NIRv")) %>%
+      mutate(rsvi=factor(rsvi,levels=c("flue","ndvi", "evi", "cci", "pri", "NIRv")))  %>%
+  ggplot(aes(x=dday, y=median)) +
+  theme_classic() +
+  geom_line(aes(color=rsvi)) +
+  labs(x="Day after drought onset", y="Unitless") +
+  geom_ribbon(aes(ymin=q33, ymax=q66, fill=rsvi), alpha=0.3) +
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_wrap(~rsvi, scales = "free_y")
+
+# scaled RSVI
+df_dday_agg_inst_site %>%
+  filter(rsvi %in% c("flue","sndvi", "sevi", "scci", "spri", "sNIRv")) %>%
+    mutate(rsvi=factor(rsvi,levels=c("flue","sndvi", "sevi", "scci", "spri", "sNIRv"))) %>%
+  ggplot(aes(x=dday, y=median)) +
+  geom_line(aes(color=rsvi)) +
+  theme_classic() +
+  labs(x="Day after drought onset", y="Unitless") +
+  geom_ribbon(aes(ymin=q33, ymax=q66, fill=rsvi), alpha=0.3) +
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_wrap(~rsvi, scales = "free_y")
+
+# Scaled and normalized RSVI
+dose.labs <- c("flue" = "fLUE",
+               "dsndvi" = "dsNDVI",
+               "dsevi" = "dsEVI",
+               "dscci" = "dsCCI",
+               "dspri" = "dsPRI",
+               "dsNIRv" = "dsNIRv")
+df_dday_agg_inst_site %>%
+  filter(rsvi %in% c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv")) %>% # "flue",
+      mutate(rsvi=factor(rsvi,levels=c("flue","dsndvi", "dsevi","dscci", "dspri", "dsNIRv"))) %>% #"flue"
+  ggplot(aes(x=dday, y=median)) +
+  geom_hline(yintercept=1,col="gray") +
+  theme_classic() +
+  annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .25)  +
+  # annotate("rect", xmin = 20, xmax = 40, ymin = -Inf, ymax = Inf, alpha = .25)  +
+  # annotate("rect", xmin = 40, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .10)  +
+  geom_line(aes(color=rsvi)) +
+  labs(x="Day after drought onset", y="Unitless") +
+  geom_ribbon(aes(ymin=q33, ymax=q66, fill=rsvi), alpha=0.3) +
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  scale_y_continuous(breaks = c(0.5,1,1.5)) +
+  scale_x_continuous(limits = c(-10,75)) +
+  facet_wrap(~rsvi, labeller = as_labeller(dose.labs))  + theme_classic() +
+    theme(axis.text=element_text(size=12, color="black"),
+        axis.title=element_text(size=14),
+        panel.border = element_rect(colour = "black", fill=NA),
+        legend.position="none") 
+
+```
+
+## Plot by vegetation type
+- Add vegetation type and meteorological variables to data and do evaluations with data aggregated by vegetation type - the way you've done it before.
+```{r}
+## Vegetation type - add info
+load(paste(path,"metainfo_sites_fluxnet2015.Rdata",sep=""))
+metainfo_sites_fluxnet2015 <- as_tibble(metainfo_sites_fluxnet2015)
+
+## Complement the data with meteorological variables, measured at the FLUXNET sites.
+load("data/obs_eval_NT.Rdata") # adjust path /Users/benjaminstocker/eval_pmodel/
+
+# set of RSVI:
+vars <- c("flue","dsndvi", "dsevi", "dscci", "dspri", "dsNIRv")
+vars_names <- c("flue","dsNDVI", "dsEVI", "dsCCI", "dsPRI", "dsNIRv")
+
+df_dday_agg_inst_veg <- merge(df_dday_agg_inst, metainfo_sites_fluxnet2015[,c(1,5)], by.x="site", by.y="mysitename")
+
+## Join SAV + WSA
+df_dday_agg_inst_veg$classid[df_dday_agg_inst_veg$classid == "WSA"] <- "SAV"
+
+nclass <- unique(df_dday_agg_inst_veg$classid)
+
+# Median by classid (nomalized on 1)
+dose.labs <- vars_names
+names(dose.labs) <- vars
+
+df_dday_agg_inst_veg %>%  group_by( dday, classid, rsvi ) %>%
+  summarise_at( vars(one_of("median","q33","q66")), funs(median( ., na.rm=TRUE))) %>%
+  filter( !is.na( dday ) ) %>% filter(classid %in% c("ENF","SAV","GRA","EBF", "DBF")) %>% #,"MF","CRO"
+  filter(rsvi %in% vars)  %>% 
+      mutate(rsvi=factor(rsvi,levels=vars)) %>%
+  ggplot(aes(x=dday, y=median, group=classid)) + # If we want the different sites: ,group=site
+  geom_vline(xintercept=0,col="gray") + geom_hline(yintercept=1,col="gray") +
+  geom_line(aes(color=rsvi)) + geom_ribbon(aes(ymin=q33, ymax=q66, fill=rsvi), alpha=0.35) +
+  # xlim(-10, 40) +
+  theme_classic() +
+  scale_x_continuous(limits=c(-10,75)) +
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  theme(axis.text=element_text(size=12, color="black"),
+        axis.title=element_text(size=14),
+        panel.border = element_rect(colour = "black", fill=NA),
+        strip.text.x = element_text(size = 12),
+        strip.text.y = element_text(size = 12),
+        legend.position = "none", legend.title = element_blank()) +
+    annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .15) +
+  facet_grid(rsvi~classid, labeller = labeller(rsvi = dose.labs)) + #,  scales = "free_y" /
+  labs(x="Day after drought onset", y="Unitless")
+
+
+```
+## Plot Forest vs Non-Forest
+- Add vegetation type and meteorological variables to data and do evaluations with data aggregated by vegetation type - the way you've done it before.
+```{r}
+## BIOMES
+forest <- c("DBF","EBF","ENF")
+nonforest <- c("SAV","WSA","GRA")
+
+df_dday_agg_inst_veg$biome[df_dday_agg_inst_veg$classid %in% forest] <- "Forest"
+df_dday_agg_inst_veg$biome[df_dday_agg_inst_veg$classid %in% nonforest] <- "Non-Forest"
+
+nbiomes <- unique(df_dday_agg_inst_veg$biome)
+
+# # Median by classid (nomalized on 1)
+# dose.labs <- vars_names
+# names(dose.labs) <- vars
+
+df_dday_agg_inst_veg %>%  group_by( dday, biome, rsvi ) %>%
+  filter(!is.na(biome)) %>%
+  summarise_at( vars(one_of("median","q33","q66")), funs(median( ., na.rm=TRUE))) %>%
+  filter( !is.na( dday ) )%>% 
+  filter(rsvi %in% vars)  %>% 
+      mutate(rsvi=factor(rsvi,levels=vars)) %>%
+  ggplot(aes(x=dday, y=median, group=rsvi)) +
+  geom_vline(xintercept=0,col="gray") + geom_hline(yintercept=1,col="gray") +
+  geom_line(aes(color=rsvi)) + #geom_ribbon(aes(ymin=q33, ymax=q66, fill=rsvi), alpha=0.35) +
+  geom_smooth(aes(color=rsvi)) +
+  theme_classic() +
+  scale_x_continuous(limits=c(-5,50)) +
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  theme(axis.text=element_text(size=12, color="black"),
+        axis.title=element_text(size=14),
+        panel.border = element_rect(colour = "black", fill=NA)
+        # strip.text.x = element_text(size = 12),
+        # strip.text.y = element_text(size = 12),
+        # legend.position = "none", legend.title = element_blank()
+        ) +
+    annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = .15) +
+  facet_grid(~biome) + #,  scales = "free_y" /
+  labs(x="Day after drought onset", y="Unitless")
+
+
+```
+
+
+## Plot time series with all predictors
+- Complement data with meteorological variables, measured at the FLUXNET sites
+```{r}
+sitios <- ddf$site %>% unique()
+
+# pdf(paste("Times_series.pdf",sep=""),width=10.84,height=5.30)
+# for(i in 1:length(sitios)){
+i <- 14 # Nice Time series
+sitename <- sitios[i]
+ddfsite <- ddf %>% filter(site == sitename) %>%
+left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
+    mutate (PPFD = ppfd_fluxnet2015 * fapar) 
+
+class <- unique(ddfsite$classid)
+
+
+ts <- ddfsite %>% 
+  tidyr::gather(variables, value, c(flue, ndvi, evi, cci, pri, NIRv)) %>% # ,temp,PPFD
+  filter(site==sitename) %>% 
+  mutate(variables=factor(variables,levels=c("flue","ndvi", "evi", "cci", "pri", "NIRv"))) %>% #,"temp","PPFD"
+  filter(!is.na(variables))
+
+# New facet label names for dose variable
+dose.labs <- c("flue" = "fLUE",
+               "ndvi" = "NDVI",
+               "evi" = "EVI",
+               "cci" = "CCI",
+               "pri" = "PRI",
+               "NIRv" = "NIRv"
+               # "temp" = "Temp",
+               # "PPFD" = "APAR"
+               )
+
+flue_droughts <-  get_consecutive(ddfsite$is_flue_drought) 
+if (nrow(flue_droughts)>0) {
+flue_droughts$date_start <- ddfsite$date[flue_droughts$idx_start]
+flue_droughts <- flue_droughts %>%  mutate(date_end = date_start + len) 
+
+# Zoom where flue data is available
+# flue_dates <- ts %>% filter(variables=="flue") %>% select(date) %>% unlist()
+# flue_dates <- c(flue_dates[1],flue_dates[length(flue_dates)])
+
+print(ggplot(ts, aes(x=date, y=value)) +
+    facet_grid(rows=vars(variables), scales = "free_y", labeller = as_labeller(dose.labs)) +
+    geom_rect(data = flue_droughts, aes(x = NULL,y = NULL, xmin=date_start, xmax=date_end, ymin=-Inf, ymax=Inf),
+    fill=("gray"), alpha=0.7, #rgb(0,0,0,0.3) #"#e8c745"
+    color=NA) +
+    geom_line() + 
+    theme_classic() + 
+    ggtitle(paste(sitename,class,sep=" - ")) + #
+  scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date"))
+}else{
+ print(ggplot(ts, aes(x=date, y=value)) +
+    facet_grid(rows=vars(variables), scales = "free_y", labeller = as_labeller(dose.labs))  +
+    geom_line() + 
+    theme_classic() + 
+    ggtitle(sitename)  +
+  scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date"))
+}
+
+# }
+# dev.off()
+```
+## Join SAV + WSA
+- Complement the data with vegetation class
+```{r}
+# vegetation
+metainfo_sites_fluxnet2015 <- metainfo_sites_fluxnet2015 %>% rename(site=mysitename)
+
+ddf <- ddf %>% 
+  inner_join(metainfo_sites_fluxnet2015[,c(1,5)], by="site") 
+
+## Join SAV + WSA 
+ddf$classid[ddf$classid == "WSA"] <- "SAV"
+```
+## Drought vs No-Drought days
+- According to this evaluation, CCI and PRI vary very little during drought conditions but are clearly correlated with other RSVIs. Is this correlation affected whether data is in a drought or not? Below a quick look at how EVI and PRI are correlated and how this relationship is affected by the factor `is_flue_drought`. There might be some information here...
+```{r}
+day <- c("TRUE" = "Drought",
+         "FALSE" = "No-Drought")
+
+ddf %>% 
+  filter(!is.na(is_flue_drought)) %>% 
+  ggplot(aes(x=evi, y=NIRv, color=is_flue_drought)) +
+  scale_colour_discrete(name  = NULL) +
+  theme_classic() + 
+    theme(axis.text=element_text(size=12, color="black"),
+        axis.title=element_text(size=14),
+        legend.text = element_text(size = 12),
+        panel.border = element_rect(colour = "black", fill=NA)) +
+  guides(colour = guide_legend(override.aes = list(size=3))) +
+  # facet_grid(classid~is_flue_drought, labeller = labeller(is_flue_drought = as_labeller(day))) +
+  # facet_wrap(~classid) +
+  labs(x="NDVI", y="NIRv") +
+  # geom_point(alpha=0.2, shape=20) + scale_color_grey()
+  geom_point(alpha=0.2, shape=20) + scale_color_brewer(palette="Set1",direction = -1,
+                                                       name = NULL, labels = c("Non-drought","Drought"))
+
+####
+    data <- ddf %>%
+      filter(!is.na(is_flue_drought)) 
+    
+# Index vs Index
+lm_eqn = function(df){
+    m = lm(pri ~ evi, df);
+    eq <- substitute( 
+      # italic(y) == a + b %.% italic(x)*","~~italic(R)^2~"="~2*","~~italic(p)~"="~pv,
+      italic(R)^2~"="~r2*","~~italic(p)~"="~pv,
+                     list(a = format(coef(m)[1], digits = 2), 
+                          b = format(coef(m)[2], digits = 2), 
+                          r2 = format(summary(m)$r.squared, digits = 2),
+                          pv = format(summary(m)$coefficients[8], digits=2)))
+    
+    as.character(as.expression(eq));                 
+  }
+
+    library(plyr) 
+    eq <- ddply(data,.(is_flue_drought),lm_eqn) # por clasificación
+    eqtotal <- ddply(data,.(),lm_eqn) # correlación general
+
+  ggplot(data, aes(x=evi, y=pri, group=is_flue_drought, color=is_flue_drought)) +
+  geom_point(alpha=0.5, shape=20) + 
+  # scale_color_brewer(palette="Set1",direction = -1,name = NULL, labels = c("Non-drought","Drought")) +
+  # scale_colour_manual(values=cbp1) + 
+  scale_color_grey(start = 0.8, end = 0.2, labels = c("Non-drought","Drought")) +
+  geom_smooth(aes(linetype=is_flue_drought), color="black", 
+              method = "lm", se=FALSE, formula = y ~ x) + 
+  theme_classic() + 
+  geom_text(data=eq[2,],aes(x = 0.25, y = 0.05,label=V1), # VERDADERO
+            cex=5, parse = TRUE, inherit.aes=FALSE) +
+  geom_text(data=eq[1,],aes(x = 0.8, y = 0.05,label=V1), # FALSO
+            cex=5, parse = TRUE, inherit.aes=FALSE) +
+  theme(axis.text=element_text(size=12, color="black"),
+        axis.title=element_text(size=14),
+        legend.text = element_text(size = 12),
+        panel.border = element_rect(colour = "black", fill=NA)) +
+  guides(colour = guide_legend(override.aes = list(size=3))) +
+  labs(x="NDVI", y="PRI") #+ 
+  # scale_y_continuous(limits = c(-1, 1)) + 
+  # scale_x_continuous(limits = c(-1, 1))
+
+```
+
+## Time series decouple
+```{r}
+# Add normalised RSVIs
+sdovars <- paste0("s", dovars)
+ddf <- ddf %>% add_normalised_rsvi(sdovars, out_align$norm) 
+
+# Site:
+egSite <- "AU-DaP"# "FR-LBr" #"IT-Ro1"#
+
+# Indices
+egSite_data <- ddf %>% filter(site == egSite) %>%
+  filter(!is.na(dsndvi)) %>% filter(!is.na(dsNIRv))
+
+# Running windows for every date
+library(stats)
+rwndvi <- runmed(egSite_data$dsndvi,k=3)
+rwcci <- runmed(egSite_data$dsNIRv,k=3)
+
+# Drought
+df_dday <- out_align$df_dday
+time_d <- df_dday[which(df_dday$dday==0 & df_dday$site==egSite),2]
+
+# Plots
+plot(egSite_data$date,as.vector(rwndvi),type="l",
+     xlab="Date", ylab="Normalised NDVI (CCI)", 
+     # ylim=c(),
+     lwd = 1)
+lines(egSite_data$date,rwcci,col=2, lwd = 1)
+abline(v = unlist(time_d), col="gray80")
+
+```
+
+## DROUGHT PREDICTION
+```{r}
+ require( randomForest )
+ require( caret )
+ require( tidyverse )
+
+## load data and RF function
+ load("./data/ddf_v4.Rdata")
+ load("./data/metainfo_Tier1_sites_kgclimate_fluxnet2015.Rdata")
+ load("./data/obs_eval_NT.Rdata") #
+
+ source("analyse_modobs2.R")
+ source("wrap_ml.R")
+
+## complement info using the meta info of FLUXNET sites provided through rsofun
+ ddf <- ddf %>%
+   left_join(metainfo_Tier1_sites_kgclimate_fluxnet2015 %>% select(site=sitename, classid), by = "site")
+
+ dovars <- c("cci","evi","ndvi","NIRv","pri")
+
+ ## Prepare data set
+ ddf_rf <- ddf %>%
+   left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
+   mutate (APAR = ppfd_fluxnet2015 * fapar) %>%
+   filter(!is.na(flue)) %>%
+   select(date, site, is_flue_drought, flue, dovars, APAR, temp, classid) %>%
+   mutate(classid=factor(classid), is_flue_drought = factor(is_flue_drought))  %>%
+   drop_na()
+
+ # Class id: ONLY 5 classes
+ ddf_rf$classid[ddf_rf$classid=="WSA"] <- "SAV"
+ cv <- c("ENF","DBF","GRA","EBF","SAV")
+
+ ddf_sub <- ddf_rf %>%
+   filter(classid %in% cv) %>% droplevels()
+
+ sites <- ddf_sub$site %>% unique()
+
+ ## Predictors combinations
+ complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
+ rsvi <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv")
+ model3 <- c("ndvi",  "cci",  "temp", "classid")
+ model4 <- c("ndvi", "cci", "temp", "APAR")
+ model10 <- c("NIRv", "cci", "pri", "ndvi", "temp", "classid")
+ model11 <- c("NIRv", "pri", "temp", "classid")
+ estructura <- c("ndvi",    "evi",  "temp", "classid")
+ actividad <- c("pri",    "cci",  "temp", "classid")
+ model14 <- c("pri",    "NIRv",  "APAR", "classid")
+
+ # Each RSVI alone
+ ndvi <- c("ndvi")
+ evi <- c("evi")
+ cci <- c( "cci")
+ pri <- c("pri")
+ NIRv <- c("NIRv")
+
+ predictores <-list(complete, rsvi, model3, model4, ndvi, evi, cci, pri, NIRv,
+                    model10, model11,
+                    estructura, actividad, model14)
+
+
+```
+
+## Recursive feature elimination
+```{r}
+## See https://topepo.github.io/caret/recursive-feature-elimination.html
+## Look at how model performance changes for different sets of predictors.
+
+# Define folds and target
+nam_group <- "site"
+nam_target <- "is_flue_drought"
+
+subsets <- complete %>% length() %>% seq() %>% rev()
+# sites <- unique(df[[ "site" ]]) # 'nam_group' is site in this case (i.e. split the data by sparing data from one site for testing)
+group_folds <- vector(mode = "list", length = length(sites))
+
+for (i in seq_along(sites)) group_folds[[i]] <- which(ddf_sub[[nam_group]] != sites[i])
+names(group_folds) <- paste0("Subject", sites)
+
+# proProces for Quantitative analysis
+if(nam_target=="flue"){
+normalization <- preProcess(ddf_sub, c("center", "scale"))
+df <- predict(normalization, ddf_sub)
+df <- as.data.frame(df)
+}else{df <- ddf_sub}
+
+ctrl <- rfeControl(functions = lrFuncs, # lrFuncs para is_flue_drought
+                   method = "LGOCV",
+                   index = group_folds,
+                   repeats = 5,
+                   verbose = FALSE
+                   # rerank = TRUE
+)
+
+forml  <- as.formula(  paste( nam_target, "~", paste( complete, collapse=" + " ) ) )
+
+set.seed(10)
+lmProfile <- caret::rfe( forml,
+                         df,
+                         method="nnet",
+                         sizes = c(1:12),
+                         rfeControl = ctrl
+)
+
+lmProfile$fit
+lmProfile$optVariables
+head(lmProfile$variables)
+predictors(lmProfile)
+# head(lmProfile$resample)
+trellis.par.set(caretTheme())
+plot(lmProfile, type = c("g", "o"))
+lmProfile$metric
+
+```
+
+## CLASSIFICATION
+```{r}
+
+for(i in  lenght(predictores)){
+rf_lgocv <- wrap_ml( df = ddf_sub,
+                                nam_target = "is_flue_drought",
+                                nam_group = "site",
+                                method =  "nnet",
+                                train_method = "LGOCV",
+                                predictors = predictores[[i]],
+                                tune = FALSE,#TRUE,
+                                inner = TRUE,
+                                classification = TRUE
+)
+# save(rf_lgocv , file = paste("./data/NN_isFlue_mod",i,".Rdata",sep=""))
+print(rf_lgocv$rf$results) # Promising: has accuracy of 0.81.
+}
+
+print(paste("Accuracy of main model:", rf_lgocv$rf$results$Accuracy))
+print(paste("Mean accuracy across leave-site-out models:", purrr::map_dbl(rf_lgocv$list_rf, "myresults") %>% mean()))
+
+## Test: How is accuracy calculated?
+get_modobs <- function(df){
+  tibble(mod = as.vector(df$pred), obs = df$obs)
+}
+list_modobs_listmodels <- purrr::map(rf_lgocv$list_rf, ~get_modobs(.))
+
+calc_performance <- function(df){
+  df_sum <- df %>%
+    dplyr::mutate(good = obs==mod) %>%
+    dplyr::summarise(good = sum(good))
+  df_sum$good / nrow(df)
+}
+acc_test <- purrr::map_dbl(list_modobs_listmodels, ~calc_performance(.)) %>% mean()
+# that's the same as given above as 'Mean accuracy across leave-site-out models'
+print(paste("Re-calculated mean accuracy across leave-site-out models:", acc_test))
+
+##### cm for each site
+lgocv <- data.frame(matrix(0, ncol = 4, nrow = length(rf_lgocv$list_rf)))
+
+for (i in 1: length(rf_lgocv$list_rf)){
+  nn <- rf_lgocv$list_rf[[i]]
+ 
+  df_tmp <- tibble(
+  obs = as.factor(nn$obs), 
+  mod = as.factor(as.vector(nn$pred) )
+  )
+ 
+cm <- confusionMatrix( data = df_tmp$mod, reference = df_tmp$obs, positive ="TRUE" )
+
+## get Accuracy
+myaccuracy <- cm$overall["Accuracy"]
+## get Kappa
+mykappa <- cm$overall["Kappa"]
+mysensit <- cm$byClass["Sensitivity"]
+myspec <- cm$byClass["Specificity"]
+
+lgocv[i,] <- c(myaccuracy, mykappa, mysensit, myspec)
+ 
+}
+colnames(lgocv) <- c("Accuracy","Kappa","Sensitivity","Specificity")
+lgocv$site <- sites
+# table for each site
+
+
+#### Construct global confusion matrix
+cm_simple <- list_modobs_listmodels %>% bind_rows() %>% table()
+df_modobs_listmodels <- list_modobs_listmodels %>% bind_rows()
+cm <- confusionMatrix( data = as.factor(df_modobs_listmodels$mod),
+                       reference = as.factor(df_modobs_listmodels$obs), positive="TRUE")
+
+# source('ConfusionMatrix.R')
+# draw_confusion_matrix(cm)
+
+## Show results for each site (prediction trained at all other sites)
+vec_acc <- purrr::map_dbl(rf_lgocv$list_rf, "results") # myresults
+df_acc <- tibble(site = sites, accuracy = vec_acc )
+print("Accuracy for each site (prediction trained at all other sites):")
+print(df_acc)
+
+## Get variable importance (see https://topepo.github.io/caret/variable-importance.html)
+var_imp <- varImp(rf_lgocv$rf)
+list_var_imp <- purrr::map(rf_lgocv$list_rf, ~varImp(.))
+plot(var_imp)
+
+## Alternative: GARSON FOR NN
+# library(NeuralNetTools)
+# garson(rf_lgocv$rf$finalModel)
+```
+
+## Time series mod-obs
+```{r}
+siteobj <-  "FR-Pue" # "IT-Ro1"
+s <- list_modobs_listmodels[[siteobj]]
+#Algunos sitios no coincide el número de observaciones, rastrear fecha para graficar
+# p <- rf_lgocv$list_rf$`FR-Pue`$pred
+# s <- ddf %>%
+#   left_join(rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
+#   filter(!is.na(flue)) %>%
+#   filter(site == siteobj) %>%
+#   select(date, is_flue_drought) %>%
+#   rename(obs = is_flue_drought)  %>%
+#   drop_na()
+s$obs <- as.character(s$obs)
+
+time_series <- ddf_sub %>% filter(site==siteobj) %>% 
+  select(date, flue) %>% cbind(s) %>% #left_join(s, by="date") %>% ## 
+  gather(key=variable, drought, -date, -flue)
+# time_series$variable <- as.factor(time_series$variable)
+# time_series$drought <- factor(time_series$drought,
+#                               levels=c("TRUE", "FALSE"), labels=c("Drought", "No-Drought"))
+
+time_series$variable[time_series$variable=="mod"] <- 1
+time_series$variable[time_series$variable=="obs"] <- 2
+time_series$drought[time_series$drought=="TRUE"] <- 0
+time_series$drought[time_series$drought=="FALSE"] <- 1
+time_series$variable <- as.factor(time_series$variable)
+time_series$drought <- as.numeric(time_series$drought)
+
+# Bien clasificados:
+ts <- ddf_sub %>% filter(site==siteobj) %>% filter(!is.na(flue)) %>% drop_na() %>%
+  select(date, flue) %>% cbind(s)  # left_join(s, by="date")
+bienclas <- ts[which(ts$mod==ts$obs),]
+bienclas$mod <- "mod"
+colnames(bienclas) <- c("date","flue","variable", "drought" )
+
+bienclas$variable[bienclas$variable=="mod"] <- 1
+bienclas$drought[bienclas$drought=="TRUE"] <- 0
+bienclas$drought[bienclas$drought=="FALSE"] <- 1
+bienclas$variable <- as.factor(bienclas$variable)
+bienclas$drought <- as.numeric(bienclas$drought)
+
+# PLOT
+linecolors <- c("8c8c8c","#000000") #??? 
+fillcolors <- c("#8c8c8c","#000000") ##
+
+ggplot(data=time_series, aes(x=date, y=drought, colour = variable, fill = variable)) +
+  geom_point(shape = 21, alpha = 1, size = 2.5) +
+  scale_color_manual(values=linecolors, name = "Classification", labels = c("Mod", "Obs=Mod")) +
+  scale_fill_manual(values=fillcolors, name = "Classification", labels = c("Mod", "Obs=Mod")) +
+  geom_line(data=time_series, aes(x=date, y=flue), color="black") +
+  geom_point(data=bienclas, aes(x=date,y=drought), color="red", size = 2.5) +
+  scale_y_continuous(NULL,
+                     sec.axis = sec_axis(~., name = "fLUE"),
+                     breaks=c(0,1), labels = c("Drought","No-Drought")) +
+  xlab("Date") +
+  theme_classic() +
+  theme(axis.text=element_text(size=12, color="black"),
+  axis.title=element_text(size=14),
+  panel.border = element_rect(colour = "black", fill=NA))  
+  # scale_x_date(limits=c('2010-01-01','2012-01-01'))
+
+cm <- confusionMatrix( data = as.factor(ts$mod),
+                       reference = as.factor(ts$obs), positive="TRUE")
+```
+
+## Inside vegetation class
+```{r}
+for(v in 1:length(cv)){
+  ddf_veg <- ddf_sub %>% filter(classid == veg[v])
+
+  # for(i in 1:3){ # lenght(predictores)
+    rf_lgocv <- wrap_ml( df = ddf_veg,
+                         nam_target = "flue", #"is_flue_drought",
+                         nam_group = "site",
+                         method = "nnet",
+                         train_method = "LGOCV",
+                         predictors = predictores[[1]],  # use double square bracket here to access element of list
+                         tune = TRUE,
+                         inner = TRUE,
+                         classification = FALSE
+    )
+    # save(rf_lgocv , file = paste("./data/NN_InsideVeg_isFlue_mod",i,".Rdata",sep=""))
+    print(v)
+    print(varImp(rf_lgocv$rf))
+    print(rf_lgocv$rf$results)
+  # }
+}
+
+```
+
+## DROUGHT MAGNITUDE
+```{r}
+for(i in 1:length(predictores)){ # lenght(predictores)
+rf_lgocv_flue <- wrap_ml( df = ddf_sub,
+                          method = "nnet",
+                          nam_target = "flue",
+                          nam_group = "site",
+                          train_method = "LGOCV",
+                          predictors = predictores[[i]],  # use double square bracket here to access element of list
+                          tune = FALSE, #TRUE,
+                          inner = TRUE,
+                          classification = FALSE
+)
+print(paste("Results of main model:"))
+print(rf_lgocv_flue$rf$results)   # RMSE 0.1765139   R2 0.3186167
+print(i)
+# save(rf_lgocv_flue , file = paste("./data/NN_Flue_mod",i,".Rdata",sep=""))
+}
+
+## B: Mod vs obs for leave-group-out models, evaluated at left-out site data
+## Note: it's necessary to set 'inner' = TRUE in the wrap_ml() call to get all this data
+## ==> Note: much worse performance than suggested above.
+## Important: The performance of the pooled model (shown here) is not the same as the
+## mean across individual models from left-out sites.
+get_modobs <- function(df){
+  tibble(mod = as.vector(df$pred), obs = df$obs)
+}
+list_modobs_listmodels <- purrr::map(rf_lgocv_flue$list_rf, ~get_modobs(.))
+out_modobs <- list_modobs_listmodels %>%
+  bind_rows %>%
+  analyse_modobs2(mod = "mod", obs = "obs")
+out_modobs$gg
+
+# This gives almost the same results as the summary of the main model
+results_by_listmodels <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
+  purrr::map_dfr(., "results") %>%
+  dplyr::summarise_all(.funs = mean)
+
+# Alternative
+results_by_listmodels <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
+  purrr::map_dfr(., "df_metrics") %>% data.frame() %>% filter(.metric == "rsq") %>%
+  select( .estimate ) %>% filter(!is.na(.estimate)) %>%
+  dplyr::summarise_all(.funs = mean)
+
+print(results_by_listmodels)
+print(rf_lgocv_flue$rf$results)
+
+# Rsq for each site
+results_by_site <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
+  purrr::map_dfr(., "df_metrics") %>% data.frame() %>% filter(.metric == "slope") %>% # rmse, rsq
+  select( .estimate )
+
+# significance por each site
+pvalue <- NULL
+results_by_site <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.))
+for (i in 1: length(list_modobs_listmodels)){
+  lm <- results_by_site[[i]]
+  sum <- summary(lm$linmod)
+  print(sum)
+  p <- sum$coefficients[[8]]
+  pvalue <- rbind(pvalue, p)
+}
+
+
+###### Density  ########
+library(viridis)
+theme_set(theme_bw(base_size = 16))
+get_density <- function(x, y, ...) {
+  dens <- MASS::kde2d(x, y, ...)
+  ix <- findInterval(x, dens$x)
+  iy <- findInterval(y, dens$y)
+  ii <- cbind(ix, iy)
+  return(dens$z[ii])
+}
+
+get_modobs <- function(df){
+  tibble(mod = as.vector(df$pred), obs = df$obs)
+}
+list_modobs_listmodels <- purrr::map(rf_lgocv_flue$list_rf, ~get_modobs(.))
+out_modobs <- list_modobs_listmodels %>%  bind_rows
+
+out_modobs$density <- get_density(out_modobs$obs, out_modobs$mod, n = 100)
+
+library(Metrics)
+bias_lab <- round(percent_bias(out_modobs$mod, out_modobs$obs),3)
+rsq_lab <- round(caret::postResample(out_modobs$mod, out_modobs$obs)['Rsquared'],2)
+rmse_lab <- round(caret::postResample(out_modobs$mod, out_modobs$obs)['RMSE'],2)
+n_lab <- length(out_modobs$mod)
+lm <- lm(out_modobs$obs ~ out_modobs$mod)
+slope_lab <- round(lm$coefficients[2],2)
+
+# Significancia
+summary(lm(out_modobs$obs ~ out_modobs$mod))
+
+ggplot(out_modobs, aes(x=mod, y=obs)) +
+  geom_point(aes(x=mod, y=obs, color = density)) +
+  # geom_smooth(method = "lm", se=FALSE, color="red", formula = y ~ x, cex=0.7) +
+  geom_abline(intercept=0, slope=1, linetype = "dashed", color="gray") +
+  scale_color_viridis(option="magma") +
+  theme_classic() +
+  theme(axis.text=element_text(size=12, color="black"),
+        axis.title=element_text(size=14),
+        panel.border = element_rect(colour = "black", fill=NA)) +
+  xlab("Predicted fLUE") + ylab("Observed fLUE") +
+  ylim(0,1.5) + xlim(0,1)  +
+  annotate("text",x=0.15, y=1.50, label = paste("N ==", n_lab), parse=TRUE) +
+  annotate("text",x=0.15, y=1.40, label = paste("R^2 ==" , rsq_lab), parse=TRUE) +
+  annotate("text",x=0.15, y=1.30, label = paste("RMSE ==", rmse_lab), parse=TRUE) +
+  annotate("text",x=0.15, y=1.20, label = paste("bias ==", bias_lab), parse=TRUE) +
+  annotate("text",x=0.15, y=1.10, label = paste("Slope ==", slope_lab), parse=TRUE) +
+  annotate("text",x=0.27, y=1.10, label = paste("***"))
+
+#### One Site time series: ###
+sitename <- "FR-Pue"
+one <- list_modobs_listmodels$`FR-Pue`
+ts_one <- ddf %>% filter(site == sitename ) %>% left_join(rename(one, flue=obs), by="flue") %>%
+  select(site, date, flue, is_flue_drought, mod)
+plot(ts_one$flue~ts_one$date, type="l", ylab="Observed fLUE", xlab="Predicted fLUE", main=sitename)
+lines(ts_one$mod~ts_one$date, col=2 )
+
+library(reshape2)
+ts <- melt(ts_one,id.vars = c("site","date","is_flue_drought"), measure.vars = c("flue", "mod") )
+print(ggplot(ts, aes(x=date, y=value, group=variable)) +
+        geom_line(aes(color=variable)) +
+        scale_color_manual(values=c("black","red"),
+                           name = NULL, labels = c("Observed fLUE","Predicted fLUE")) +
+        theme_classic() + ggtitle(sitename)  +
+        labs(x="Date", y="Unitless") +
+        theme(axis.text=element_text(size=12, color="black"),
+              axis.title=element_text(size=14),
+              panel.border = element_rect(colour = "black", fill=NA)) +
+        scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date"))
+
+```
+## Vegetation class ##
+```{r}
+
+for(v in 1:length(cv)){
+  ddf_veg <- ddf_sub %>% filter(classid == cv[v])
+
+  # for(i in 1:length(predictores)){ # lenght(predictores)
+  rf_lgocv <- wrap_ml( df = ddf_veg,
+                       nam_target = "flue",
+                       nam_group = "site",
+                       method = "nnet",
+                       train_method = "LGOCV",
+                       predictors = c("ndvi", "evi","cci","pri","NIRv","APAR","temp"), # predictores[[1]],
+                       tune = TRUE,
+                       inner = TRUE,
+                       classification = FALSE
+  )
+  print(rf_lgocv$rf$results) # Promising: has accuracy of 0.81.
+  # save(rf_lgocv , file = paste("./data/NN_InsideVeg_Flue_mod",v,".Rdata",sep=""))
+
+ list_modobs_listmodels <- purrr::map(rf_lgocv$list_rf, ~get_modobs(.))
+out_modobs <- list_modobs_listmodels %>%
+  bind_rows %>%
+  analyse_modobs2(mod = "mod", obs = "obs")
+print(out_modobs$gg)
+
+}
+
+ddf_sub$biome[which(ddf_sub$classid %in% c("ENF","EBF","DBF"))] <- "forest"
+ddf_sub$biome[which(ddf_sub$classid %in% c("SAV","GRA"))] <- "non-forest"
+biome <- unique(ddf_sub$biome)
+
+for(b in 2:2){
+  ddf_veg <- ddf_sub %>% filter(biome == biome[b])
+
+  # for(i in 1:length(predictores)){ # lenght(predictores)
+  rf_lgocv <- wrap_ml( df = ddf_veg,
+                       nam_target = "flue",
+                       nam_group = "site",
+                       method = "nnet",
+                       train_method = "LGOCV",
+                       predictors = c("ndvi", "evi","cci","pri","NIRv","APAR","temp"), # predictores[[1]],
+                       tune = TRUE,
+                       inner = TRUE,
+                       classification = FALSE
+  )
+  print(rf_lgocv$rf$results) # Promising: has accuracy of 0.81.
+  # save(rf_lgocv , file = paste("./data/NN_InsideVeg_Flue_mod",b,".Rdata",sep=""))
+
+ list_modobs_listmodels <- purrr::map(rf_lgocv$list_rf, ~get_modobs(.))
+out_modobs <- list_modobs_listmodels %>%
+  bind_rows %>%
+  analyse_modobs2(mod = "mod", obs = "obs")
+print(out_modobs$gg)
+
+}
+
+
+```
