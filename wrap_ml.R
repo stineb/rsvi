@@ -4,6 +4,9 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
                     method = "rf", tune = FALSE, seed = 1982, classification = TRUE, inner = FALSE,
                     all = FALSE){
   
+  require(caret)
+  require(recipes)
+  
   # Construct formula
   forml  <- as.formula(  paste( nam_target, "~", paste( predictors, collapse=" + " ) ) )
   
@@ -13,15 +16,16 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
   # Specify model training parameters  
   if (train_method=="myLGOCV"){
 
-    # Leave-one-out cross validation
-    # In this case, the 'train' data is the all the avilable data.
-    # traincotrlParams <- caret::trainControl( method="LOOCV" )
-
     # This follows the tutorial on http://www.rebeccabarter.com/blog/2017-11-17-caret_tutorial/
     # Do a n_sites-fold cross validation leaving one site out in each "fold"
     n_sites <- sites %>% length()
     group_folds <- caret::groupKFold( df[[ nam_group ]], k = n_sites )
-    traincotrlParams <- caret::trainControl( index = group_folds, method = "cv" )
+    traincotrlParams <- caret::trainControl( index = group_folds, 
+                                             method = "repeatedcv", 
+                                             number = 5, 
+                                             repeats = 3,
+                                             savePredictions = "final"   # predictions on each validation resample are then available as modl$pred$Resample
+                                             )
 
   } else if (train_method=="LGOCV") {
 
@@ -36,7 +40,8 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
                                      # summaryFunction = twoClassSummary,
                                      classProbs = FALSE,
                                      index = group_folds,
-                                     savePredictions = TRUE)
+                                     savePredictions = TRUE
+                                     )
     
   } else if (train_method=="repeatedcv") {
 
@@ -50,190 +55,199 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
   ## Pre processing (scaling)
   if (classification){
     metric <- "Accuracy"
-    pre_process <- NULL
   } else {
     metric <- "RMSE" 
-    pre_process <- c("center", "scale")
   }
-  # # Specify data scaling
-  # preprocessParams <- caret::preProcess( df, method=c("range") )
-  # 
   
   # Training algorithm parameter sampling
   if (tune){
     if (method=="rf"){
       tune_grid <- expand.grid( .mtry=c(1:length( predictors )) ) # , ntree=c(500, 750, 1000) or use the Custom RF
     } else if (method=="nnet"){
-      tune_grid <- expand.grid( .decay = c(0.1), .size = seq(8) )
+      tune_grid <- expand.grid( .decay = c(0.01, 0.1, 0.5), .size = 3:20 )
     }
   } else {
     # tune_grid <- NULL
     if (method=="rf"){
       tune_grid <- expand.grid( .mtry=c(length( predictors )) ) # , ntree=c(500, 750, 1000) or use the Custom RF
     } else if (method=="nnet"){
-      tune_grid <- expand.grid( .decay = c(0.1), .size = 4 )
+      tune_grid <- expand.grid( .decay = c(0.01), .size = 4 )
     }
+  }
+  
+  ## pre-process
+  if (method=="nnet"){
+    
+    myrecipe <- recipe(forml, data = df) %>%
+      step_center(all_numeric(), -all_outcomes()) %>%
+      step_scale(all_numeric(), -all_outcomes()) %>%
+      step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE)
+    
+  } else if (method=="rf"){
+    
+    myrecipe <- recipe(forml, data = df)
+    
   }
   
   # Execute the training
   # saved predictions of the final model ('final' w.r.t. tune-grid) are saved in .$pred
   set.seed(seed)
   print("training full model ...")
-  rf <- caret::train(
-    forml,
+  modl <- caret::train(
+    myrecipe,
     data            = df,
     method          = method,
     metric          = metric,
     tuneGrid        = tune_grid,
-    preProcess      = pre_process,
+    # preProcess      = pre_process,
     trControl       = traincotrlParams,
     trace           = FALSE,
-    importance      = TRUE,
-    savePredictions = "final"
+    importance      = TRUE
     )
-  # save(rf, file = "./data/rf.Rdata")
+  
+  # save(modl, file = "./data/modl.Rdata")
   
   # predict
-  rf$pred <- predict(rf, newdata = df)
-  rf$obs  <- df[[nam_target]]
+  modl$pred <- predict(modl, newdata = df)
+  modl$obs  <- df[[nam_target]]
   
-  if (inner){
-    # Check if it makes sense
-    wrap_ml_inner <- function(df, rf_main, predictors, nam_target, forml, isite){
-      
-      print(paste("training model with leave-site-out:", isite, "..."))
-      
-      # split data
-      df_train <-  df %>% dplyr::filter(site != isite)
-      if (all){
-        df_test <- df
-      } else {
-        df_test <- df %>% dplyr::filter(site == isite)
-      }
-      
-      # train
-      sites <- df_train[[ nam_group ]] %>% unique()
-      n_sites <- sites %>% length()
-      group_folds <- caret::groupKFold( df_train[[ nam_group ]], k = n_sites )
-      traincotrlParams <- caret::trainControl( index = group_folds, method = "cv" )
-
-      set.seed(seed)
-      rf <- caret::train(
-        forml,
-        data            = df_train,
-        method          = method,
-        metric          = metric,
-        tuneGrid        = tune_grid,
-        preProcess      = pre_process,
-        trControl       = traincotrlParams,
-        trace           = FALSE,
-        importance      = TRUE,
-        savePredictions = "final"
-      )
-      
-      # predict
-      rf$pred <- predict(rf, newdata = df_test, preProcess = pre_process)
-      rf$obs  <- df_test[[nam_target]]
-      
-      rf$pred_main <- predict(rf_main, newdata = df_test, preProcess = pre_process)
-      
-      # summarise
-      if (classification){
-        
-        ## calculate confusion matrix and add to output
-        df_tmp <- tibble(
-          obs = as.factor(df_test[[nam_target]]), 
-          mod = as.factor(as.vector(rf$pred))
-          )
-        rf$cm <- confusionMatrix( data = df_tmp$mod, reference = df_tmp$obs )
-        
-        ## get Accuracy
-        rf$myaccuracy <- rf$cm$overall["Accuracy"]
-        
-        ## get Kappa
-        rf$mykappa <- rf$cm$overall["Kappa"]
-        
-      } else {
-        
-        ## calculate RMSE
-        rf$myrmse <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
-          yardstick::rmse(obs, mod) %>% 
-          dplyr::select(.estimate) %>% 
-          dplyr::pull()
-
-        ## calculate R-squared
-        rf$myrsq <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
-          yardstick::rsq(obs, mod) %>% 
-          dplyr::select(.estimate) %>% 
-          dplyr::pull()
-        
-      }
-      
-      return(rf)      
-    }
-    
-    list_rf <- purrr::map(as.list(sites), ~wrap_ml_inner(df, rf, predictors, nam_target, forml, .))
-    names(list_rf) <- sites
-    
-    ## Follow "Gavin method": 
-    ## produce a model ensemble where each model is trained on a slightly different dataset due to the different
-    ## LOSO groups (this part is done inside the inner loop), then we take the median prediction of the ensemble 
-    ## as the best for the flux.
-    
-    ## Now, average across predictions (take most frequent for categorical variables)
-    if (classification){
-      ## Categorical data
-      get_mod_from_inner <- function(rf){
-        out <- tibble(mod = as.logical(rf$pred))
-        return(out)
-      }
-      get_most_frequent <- function(vec){
-        ## warning: if equal number of times false and true, then false is returned
-        out <- sort(table(vec), decreasing=TRUE)[1] %>% 
-          names() %>% 
-          as.logical()
-        return(out)
-      }
-      df_gavin <- purrr::map_dfc(list_rf, ~get_mod_from_inner(.)) %>% 
-        mutate(mod_average = apply(., 1, get_most_frequent)) %>% 
-        mutate(obs = list_rf[[1]]$obs )
-      rf$pred_median_inner <- df_gavin$mod_average
-      
-      ## evaluate, based on confusion matrix
-      rf$cm_median_inner <- confusionMatrix( 
-        data = as.factor(df_gavin$mod_average), 
-        reference = as.factor(df_gavin$obs) )
-      
-    } else {
-      ## Continuous data
-      get_modobs_from_inner <- function(rf){
-        out <- tibble(mod = rf$pred, obs = rf$obs)
-        return(out)
-      }
-      df_gavin <- purrr::map_dfc(list_rf, ~get_modobs_from_inner(.)) %>% 
-        mutate(mod_average = apply(., 1, median)) %>% 
-        mutate(obs = list_rf[[1]]$obs )
-
-      ## calculate RMSE
-      rf$myrmse <- df_gavin %>% 
-        yardstick::rmse(obs, mod_average) %>% 
-        dplyr::select(.estimate) %>% 
-        dplyr::pull()
-      
-      ## calculate R-squared
-      rf$myrsq <- df_gavin %>% 
-        yardstick::rsq(obs, mod_average) %>% 
-        dplyr::select(.estimate) %>% 
-        dplyr::pull()
-      
-    }
-    
-    
-  } else {
-    
-    list_rf <- NA
-
-  }
+  # if (inner){
+  #   # Check if it makes sense
+  #   wrap_ml_inner <- function(df, rf_main, predictors, nam_target, forml, isite){
+  #     
+  #     print(paste("training model with leave-site-out:", isite, "..."))
+  #     
+  #     # split data
+  #     df_train <-  df %>% dplyr::filter(site != isite)
+  #     if (all){
+  #       df_test <- df
+  #     } else {
+  #       df_test <- df %>% dplyr::filter(site == isite)
+  #     }
+  #     
+  #     # train
+  #     sites <- df_train[[ nam_group ]] %>% unique()
+  #     n_sites <- sites %>% length()
+  #     group_folds <- caret::groupKFold( df_train[[ nam_group ]], k = n_sites )
+  #     traincotrlParams <- caret::trainControl( index = group_folds, method = "cv" )
+  # 
+  #     set.seed(seed)
+  #     rf <- caret::train(
+  #       forml,
+  #       data            = df_train,
+  #       method          = method,
+  #       metric          = metric,
+  #       tuneGrid        = tune_grid,
+  #       preProcess      = pre_process,
+  #       trControl       = traincotrlParams,
+  #       trace           = FALSE,
+  #       importance      = TRUE,
+  #       savePredictions = "final"
+  #     )
+  #     
+  #     # predict
+  #     rf$pred <- predict(rf, newdata = df_test, preProcess = pre_process)
+  #     rf$obs  <- df_test[[nam_target]]
+  #     
+  #     rf$pred_main <- predict(rf_main, newdata = df_test, preProcess = pre_process)
+  #     
+  #     # summarise
+  #     if (classification){
+  #       
+  #       ## calculate confusion matrix and add to output
+  #       df_tmp <- tibble(
+  #         obs = as.factor(df_test[[nam_target]]), 
+  #         mod = as.factor(as.vector(rf$pred))
+  #         )
+  #       rf$cm <- confusionMatrix( data = df_tmp$mod, reference = df_tmp$obs )
+  #       
+  #       ## get Accuracy
+  #       rf$myaccuracy <- rf$cm$overall["Accuracy"]
+  #       
+  #       ## get Kappa
+  #       rf$mykappa <- rf$cm$overall["Kappa"]
+  #       
+  #     } else {
+  #       
+  #       ## calculate RMSE
+  #       rf$myrmse <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
+  #         yardstick::rmse(obs, mod) %>% 
+  #         dplyr::select(.estimate) %>% 
+  #         dplyr::pull()
+  # 
+  #       ## calculate R-squared
+  #       rf$myrsq <- tibble(obs = df_test[[nam_target]], mod = as.vector(rf$pred)) %>% 
+  #         yardstick::rsq(obs, mod) %>% 
+  #         dplyr::select(.estimate) %>% 
+  #         dplyr::pull()
+  #       
+  #     }
+  #     
+  #     return(rf)      
+  #   }
+  #   
+  #   list_rf <- purrr::map(as.list(sites), ~wrap_ml_inner(df, rf, predictors, nam_target, forml, .))
+  #   names(list_rf) <- sites
+  #   
+  #   ## Follow "Gavin method": 
+  #   ## produce a model ensemble where each model is trained on a slightly different dataset due to the different
+  #   ## LOSO groups (this part is done inside the inner loop), then we take the median prediction of the ensemble 
+  #   ## as the best for the flux.
+  #   
+  #   ## Now, average across predictions (take most frequent for categorical variables)
+  #   if (classification){
+  #     ## Categorical data
+  #     get_mod_from_inner <- function(rf){
+  #       out <- tibble(mod = as.logical(rf$pred))
+  #       return(out)
+  #     }
+  #     get_most_frequent <- function(vec){
+  #       ## warning: if equal number of times false and true, then false is returned
+  #       out <- sort(table(vec), decreasing=TRUE)[1] %>% 
+  #         names() %>% 
+  #         as.logical()
+  #       return(out)
+  #     }
+  #     df_gavin <- purrr::map_dfc(list_rf, ~get_mod_from_inner(.)) %>% 
+  #       mutate(mod_average = apply(., 1, get_most_frequent)) %>% 
+  #       mutate(obs = list_rf[[1]]$obs )
+  #     rf$pred_median_inner <- df_gavin$mod_average
+  #     
+  #     ## evaluate, based on confusion matrix
+  #     rf$cm_median_inner <- confusionMatrix( 
+  #       data = as.factor(df_gavin$mod_average), 
+  #       reference = as.factor(df_gavin$obs) )
+  #     
+  #   } else {
+  #     ## Continuous data
+  #     get_modobs_from_inner <- function(rf){
+  #       out <- tibble(mod = rf$pred, obs = rf$obs)
+  #       return(out)
+  #     }
+  #     df_gavin <- purrr::map_dfc(list_rf, ~get_modobs_from_inner(.)) %>% 
+  #       mutate(mod_average = apply(., 1, median)) %>% 
+  #       mutate(obs = list_rf[[1]]$obs )
+  # 
+  #     ## calculate RMSE
+  #     rf$myrmse <- df_gavin %>% 
+  #       yardstick::rmse(obs, mod_average) %>% 
+  #       dplyr::select(.estimate) %>% 
+  #       dplyr::pull()
+  #     
+  #     ## calculate R-squared
+  #     rf$myrsq <- df_gavin %>% 
+  #       yardstick::rsq(obs, mod_average) %>% 
+  #       dplyr::select(.estimate) %>% 
+  #       dplyr::pull()
+  #     
+  #   }
+  #   
+  #   
+  # } else {
+  #   
+  #   list_rf <- NA
+  # 
+  # }
 
   # save(list_rf, file = "./data/list_rf.Rdata")
   
@@ -275,5 +289,6 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
   #   
   # }
   # return(list(clasification = ov, predicted = pred, observed = test$is_flue_drought, randomForest = rf, importance = importance))
-  return(list(rf = rf, list_rf = list_rf))
+  # return(list(rf = rf, list_rf = list_rf))
+  return(modl)
   }

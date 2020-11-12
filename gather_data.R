@@ -11,9 +11,11 @@ gather_data <- function( filn, add_scaled = FALSE ){
   # filn <- "C:/Users/Paula/Desktop/Pau/Ecologia terrestre/rsvi/data/MOD09GA_MODOCGA_filter_indices.Rdata" 
 
   ## load the data
-  load( filn )  # loads a dataframe called 'data'
-  df <- as_tibble( filter_state_data )  # copy 'filter_data' to 'df' and convert it to a 'tibble' (like a dataframe but with nicer properties)
-  rm( filter_state_data ) # delete object 'data'
+  # load( filn )  # loads a dataframe called 'data'
+  df <- read_csv(filn)
+  
+  # df <- as_tibble( filter_state_data )  # copy 'filter_data' to 'df' and convert it to a 'tibble' (like a dataframe but with nicer properties)
+  # rm( filter_state_data ) # delete object 'data'
   
   # Create date
   df <- df %>% 
