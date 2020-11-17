@@ -39,18 +39,23 @@ Drought prediction: Run from line 115
 
 Function "MOD09_MODOC_filter" combines MOD09GA and MODOCGA products for all sites (one CSV for each FLUXNET site) into one. The output is a csv file o it is in "MOD09GA_MODOCGA_filter_indices.Rdata" file (for more information see README - "MODIS Data information")
 
-```{r}
+```{r warning=FALSE, message=FALSE}
 filn <- "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018_processed.csv"
 
 if (!file.exists(filn)){
   ## process original files
-  ddf <- MOD09_MODOC_filter(dir_raw = "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/", QC500_filter = FALSE)
+  ddf <- MOD09_MODOC_filter(dir_raw = "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/", QC500_filter = FALSE) %>% 
+    rename(site = sites_id) %>% 
+    mutate(date = ymd(paste(as.character(YY), as.character(MM), as.character(DD), sep="-")))
   write_csv(ddf, path = "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv")
+  
+  ddf <- read_csv("./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv")
   
   # xxx this doesn't make sense ddf <- gather_data(ddf, add_scaled = FALSE, file="df") %>% ungroup()
   
   ## load processed data directly and get daily mean, normalised, etc.
-  ddf <- gather_data("./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv", add_scaled = FALSE) %>% ungroup()
+  ddf <- gather_data("./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv", add_scaled = FALSE) %>% 
+    ungroup()
   # ddf <- gather_data("./data/MOD09GA_MODOCGA_filter_indices.Rdata", add_scaled = FALSE) %>% ungroup()
   
   write_csv(ddf, path = filn)
@@ -64,13 +69,12 @@ if (!file.exists(filn)){
 Subset homogenous sites. Selection of sites is based on whether sites could be allocated to clusters in Stocker et al. (2018) and based on the selection by Manuela Balzarolo (see `site_selection_rsvi.Rmd`).
 ```{r}
 df_homo <- read_csv("./data/sites2.csv")
-ddf <- ddf %>% filter( site %in% df_homo$sitename )
-df_homo$sitename
+ddf <- ddf %>% 
+  dplyr::filter( site %in% df_homo$sitename )
 
-dovars <- c("cci", "evi", "ndvi", "NIRv", "pri")
-
-ddf <- ddf %>%
-  dplyr::select(site, date, one_of(dovars))
+# dovars <- c("cci", "evi", "ndvi", "NIRv", "pri")
+# ddf <- ddf %>%
+#   dplyr::select(site, date, one_of(dovars))
 ```
 
 
@@ -80,7 +84,7 @@ Add fLUE data.
 ```{r}
 ## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
 ddf <- read_csv("data/flue_stocker18nphyt.csv") %>% 
-  select(site, date, flue, is_flue_drought) %>%
+  dplyr::select(site, date, flue, is_flue_drought) %>%
   right_join(ddf, by=c("site", "date"))
 # save(ddf, file = "./data/ddf_v5.Rdata")
 ```
@@ -108,8 +112,8 @@ ddf_nn <- ddf %>%
   left_join(dplyr::rename(obs_eval_NT$ddf, site=sitename), by=c("site", "date")) %>%
   mutate (APAR = ppfd_fluxnet2015 * fapar) %>%
   dplyr::filter(!is.na(flue)) %>%
-  dplyr::select(date, site, is_flue_drought, flue, all_of(dovars), APAR, temp, classid) %>%
-  mutate(classid=factor(classid), is_flue_drought = factor(is_flue_drought))  %>%
+  # dplyr::select(date, site, is_flue_drought, flue, all_of(dovars), APAR, temp, classid) %>%
+  mutate(classid=factor(classid), is_flue_drought = factor(is_flue_drought)) %>%
   drop_na()
 
  # Subset ONLY 5 classes (cv)

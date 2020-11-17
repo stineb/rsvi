@@ -27,18 +27,24 @@ MOD09_MODOC_filter <- function(dir_raw, QC500_filter = TRUE){
   # Raw data
   data <- NULL
   for (i in 1:lfiles){
-    site <- read.csv(files[i],header=F,stringsAsFactors = FALSE)
+    site <- read.csv(files[i], header=F, stringsAsFactors = FALSE)
     colnames(site) <- as.character(site[1,])
     site <- site[c(2:nrow(site)),c(-ncol(site),(1-ncol(site)))]
     data <- rbind(data,site)
   }
+  
+  # ## much faster read-in
+  # data <- purrr::map_dfr(as.list(files), ~read_csv(.))
 
   # load("data/MODOCGA_MOD09GA_1km_raw.Rdata")
   data <- as_tibble(data)  %>% 
     mutate_at(.vars = vars(matches("sur_refl", ignore.case=FALSE)),funs(as.numeric)) # Si es necesario, a veces lee csv como character
 
   ####  MOD09 ####
-  mod09 <- data %>% select(YY, MM, DD,  site_num, sites_id, QC_500m, state_1km, sur_refl_b01, sur_refl_b02, sur_refl_b03, sur_refl_b04, sur_refl_b05, sur_refl_b06, sur_refl_b07) 
+  mod09 <- data %>% 
+    dplyr::select(YY, MM, DD,  site_num, sites_id, QC_500m, state_1km, 
+                  sur_refl_b01, sur_refl_b02, sur_refl_b03, sur_refl_b04, sur_refl_b05, sur_refl_b06, sur_refl_b07, 
+                  SolarZenith, SensorZenith, SolarAzimuth, SensorAzimuth) 
 
   #### Quality ####
   qflags_500 <- sort(unique(mod09$QC_500m))    # 32 bits
@@ -78,7 +84,8 @@ MOD09_MODOC_filter <- function(dir_raw, QC500_filter = TRUE){
   }
 
   #### MODOC ####
-  modoc <- data %>% select(YY, MM, DD,  site_num, sites_id, QC_b8_15_1km, sur_refl_b11, sur_refl_b12) 
+  modoc <- data %>% 
+    dplyr::select(YY, MM, DD,  site_num, sites_id, QC_b8_15_1km, sur_refl_b11, sur_refl_b12) 
 
   #### Quality ####
   qflags_QCoc <- sort(unique(modoc$QC_b8_15_1km))# 32 bits
@@ -131,9 +138,12 @@ MOD09_MODOC_filter <- function(dir_raw, QC500_filter = TRUE){
 
   my_data <- as_tibble(state_Data)
   bits <- c(4,5,7:9,15:17) # 0  1  2  8  9  10  12  y 13
-  filter_qflags <- my_data %>% select(1,bits) %>% filter_at(vars(-Integer_Value), all_vars(.== 0)) %>% select(1)
+  filter_qflags <- my_data %>% select(1,bits) %>% 
+    filter_at(vars(-Integer_Value), all_vars(.== 0)) %>% 
+    select(1)
 
-  filter_state_data <- filter_data %>% filter_at(vars(state_1km), all_vars(.%in% filter_qflags$Integer_Value))
+  filter_state_data <- filter_data %>% 
+    filter_at(vars(state_1km), all_vars(.%in% filter_qflags$Integer_Value))
 
   ### Create Indices: NDVI, EVI, NIRv, CCI, PRI
   filter_state_data <- filter_state_data %>%
@@ -150,5 +160,5 @@ MOD09_MODOC_filter <- function(dir_raw, QC500_filter = TRUE){
   # Generate a CSV and a RData file
   # write.csv(filter_state_data, "data/MOD09GA_MODOCGA_filter_indices.csv", row.names=FALSE)
 
-  return(filter_state_data)
+  return(as_tibble(filter_state_data))
 }
