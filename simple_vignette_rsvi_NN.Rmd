@@ -20,6 +20,7 @@ header-includes:
 source("MOD09_MODOC_filter.R")
 source("remove_outliers.R")
 source("gather_data.R")
+source("wrap_ml.R")
 
 library(dplyr)
 library(lubridate)
@@ -27,6 +28,9 @@ library(readr)
 library(ggplot2)
 library(caret)
 library(tidyverse)
+library(yardstick)
+library(recipes)
+library(rbeni)
 ```
 
 # Gather data
@@ -59,8 +63,11 @@ if (!file.exists(filn)){
   # ddf <- gather_data("./data/MOD09GA_MODOCGA_filter_indices.Rdata", add_scaled = FALSE) %>% ungroup()
   
   write_csv(ddf, path = filn)
+  
 } else {
+  
   ddf <- read_csv(filn)
+  
 }
 ```
 
@@ -81,7 +88,7 @@ ddf <- ddf %>%
 ## Complement data
 
 Add fLUE data.
-```{r}
+```{r, eval = FALSE}
 ## Get fLUE Stocker et al., 2018 publicly available data here: https://zenodo.org/record/1158524#.W_bNMZNKjOQ
 ddf <- read_csv("data/flue_stocker18nphyt.csv") %>% 
   dplyr::select(site, date, flue, is_flue_drought) %>%
@@ -91,7 +98,7 @@ ddf <- read_csv("data/flue_stocker18nphyt.csv") %>%
 
 
 Preprocessed data (subset for homogeneous sites, filtered by quality, merged with flue data and towres data)
-```{r}
+```{r, eval = FALSE}
 # Shortcut N2:
 # load("./data/ddf_v5.Rdata")
 # load("./data/metainfo_Tier1_sites_kgclimate_fluxnet2015.Rdata")
@@ -103,7 +110,7 @@ load("./data/obs_eval_NT.Rdata")
 
 Complement info using the meta info of FLUXNET sites provided through rsofun.
 Includes temperature, APAR, and select only 5 vegetation classes. Clean database, no NA
-```{r}
+```{r, eval = FALSE}
 # Vegetation classes
 cv <- c("ENF","DBF","GRA","EBF","SAV")
 
@@ -122,7 +129,6 @@ ddf_sub <- ddf_nn %>%
   dplyr::filter(classid %in% cv) %>% 
   droplevels()
 
-sites <- ddf_sub$site %>% unique()
 save(ddf_sub, file = "./data/ddf_sub.Rdata")
 ```
 
@@ -131,203 +137,243 @@ Predictors and data ready to train (ddf_sub)
 # Shortcut N3:
 load("./data/ddf_sub.Rdata")
 complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
+sites <- ddf_sub$site %>% unique()
 ```
 
-
-Machine learning function and plot function 
-```{r}
-source("wrap_ml.R")
-source("analyse_modobs2.R")
-```
 
 # Drought classification
 
-Predictions of drought or non-drought days
+Predictions of drought or non-drought days.
 
+## Single split (global model)
+
+Must be split by site.
 ```{r}
-modl <- wrap_ml( df = ddf_sub,
-                                nam_target = "is_flue_drought",
-                                nam_group = "site",
-                                method =  "nnet",
-                                train_method = "myLGOCV",
-                                predictors = complete,
-                                tune = FALSE,  #TRUE,
-                                inner = FALSE,
-                                classification = TRUE
-                    )
-
-## add predictions from validation resamples to data frame
-ddf_sub$pred <- modl$pred$pred
-
-save(modl , file = "./results/modl_is_flue_drought_nnet.Rdata")
-
-# load("./data/2020/NN_isFlue_complete.Rdata")
-
-print(modl$results) # Promising: has accuracy of 0.81.
-modl$results %>% 
-  dplyr::filter(decay == modl$bestTune$decay, size == modl$bestTune$size)
-
-confusionMatrix(data = ddf_sub$pred, reference = ddf_sub$is_flue_drought)
-postResample(pred = ddf_sub$pred, obs = ddf_sub$is_flue_drought)
-
-# print(paste("Accuracy of main model:", modl$results$Accuracy %>% mean()))
-# print(paste("Mean accuracy across leave-site-out models:", purrr::map_dbl(modl$list_rf, "myresults") %>% mean()))
+set.seed(1982)
+nsites_train <- 18
+sites_train <- sample(sites, nsites_train)
+df_train <- ddf_sub %>% 
+  dplyr::filter(site %in% sites_train)
+df_test <- ddf_sub %>% 
+  dplyr::filter(!(site %in% sites_train))
 ```
 
-## Evaluation classification: 
-Models were trained by leave-group-out cross-validation (LGOCV)  that places data for a specific site either entirely in the training or entirely in the validation set.  
+Train model on a single training set and evaluate on the single testing set from the initial split
+```{r, eval = TRUE}
+filn <- "./results/modl_is_flue_drought_nnet_GLOBAL.Rdata"
+if (!file.exists(filn)){
+  modl <- wrap_ml( df = df_train,
+                   nam_target = "is_flue_drought",
+                   nam_group = "site",
+                   method =  "nnet",
+                   train_method = "myLGOCV",
+                   predictors = complete,
+                   tune = FALSE,
+                   inner = FALSE,
+                   classification = TRUE
+                  )
+  ## save model object
+  save(modl, file = filn)
 
-### Global confusion matrix
-Includes results from all LGOCV (Accuracy, Kappa, Sensitivity, Specificity).
-```{r}
-get_modobs <- function(df){
-  tibble(mod = as.vector(df$pred), obs = df$obs)
+} else {
+  load(filn)
 }
-list_modobs_listmodels <- purrr::map(modl$list_rf, ~get_modobs(.))
 
+df_test$pred <- predict(modl, newdata = df_test)
 
-cm_simple <- list_modobs_listmodels %>% bind_rows() %>% table()
-df_modobs_listmodels <- list_modobs_listmodels %>% bind_rows()
-cm <- confusionMatrix( data = as.factor(df_modobs_listmodels$mod),
-                       reference = as.factor(df_modobs_listmodels$obs), positive="TRUE")
-
-source('ConfusionMatrix.R')
-draw_confusion_matrix(cm)
-
+confusionMatrix(data = df_test$pred, reference = df_test$is_flue_drought)
+postResample(pred = df_test$pred, obs = df_test$is_flue_drought)
 ```
 
 
-### Local confusion matrix 
-Includes results for each site. Creates a Df with outputs of every single model
+## Leave-group-out split 
 
+This is to assess the variance of evaluation metrics derived from test sets.
+```{r, eval = TRUE}
+filn <- "./results/modl_is_flue_drought_nnet_INNER.Rdata"
+if (!file.exists(filn)){
+  modl <- wrap_ml( df = ddf_sub,
+                   nam_target = "is_flue_drought",
+                   nam_group = "site",
+                   method =  "nnet",
+                   train_method = "myLGOCV",
+                   predictors = complete,
+                   tune = FALSE,
+                   inner = TRUE,
+                   classification = TRUE
+                  )
+  
+  ## save model object (WARNING: IS A BIT BIG)
+  save(modl, file = filn)
+} else {
+  load(filn)
+}
+```
+
+Get evaluation results across left-out sites from inner loop.
 ```{r}
-lgocv <- data.frame(matrix(0, ncol = 4, nrow = length(modl$list_rf)))
-
-for (i in 1: length(modl$list_rf)){
-  nn <- modl$list_rf[[i]]
- 
-  df_tmp <- tibble(
-  obs = as.factor(nn$obs), 
-  mod = as.factor(as.vector(nn$pred) )
+df_inner <- purrr::map(modl, "results") %>% 
+  purrr::map_dbl("accuracy") %>% 
+  stack() %>% 
+  dplyr::select(site = ind, accuracy = values) %>% 
+  left_join(
+    purrr::map(modl, "results") %>% 
+      purrr::map_dbl("kappa") %>% 
+      stack() %>% 
+      dplyr::select(site = ind, kappa = values),
+    by = "site"
   )
- 
-cm <- confusionMatrix( data = df_tmp$mod, reference = df_tmp$obs, positive ="TRUE" )
 
-## get Accuracy
-myaccuracy <- cm$overall["Accuracy"]
-## get Kappa
-mykappa <- cm$overall["Kappa"]
-mysensit <- cm$byClass["Sensitivity"]
-myspec <- cm$byClass["Specificity"]
+df_inner %>% knitr::kable()
 
-lgocv[i,] <- c(myaccuracy, mykappa, mysensit, myspec)
- 
-}
-colnames(lgocv) <- c("Accuracy","Kappa","Sensitivity","Specificity")
-lgocv$site <- sites
+df_inner %>% 
+  summarise(kappa_mean = mean(kappa), accuracy_mean = mean(accuracy),
+            kappa_median = median(kappa), accuracy_median = median(accuracy),
+            kappa_sd = sd(kappa), accuracy_sd = sd(accuracy)) %>% 
+  knitr::kable()
 
+gg1 <- df_inner %>% 
+  ggplot(aes(x = kappa, y = ..count..)) +
+  geom_histogram(bins = 5) +
+  labs(title = "Kappa")
+
+gg2 <- df_inner %>% 
+  ggplot(aes(x = accuracy, y = ..count..)) +
+  geom_histogram(bins = 5) +
+  labs(title = "Accuracy")
+
+library(patchwork)
+gg2 + gg1
 ```
 
+Combine predictions on test sets from the inner loop (on the single held-out site). This is the most relevant metric here!
+```{r}
+df_test_inner <- purrr::map_dfr(modl, "df_test")
+confusionMatrix( data = df_test_inner$pred,
+                 reference = df_test_inner$is_flue_drought, 
+                 positive = "TRUE"
+                 )
+```
 
 # Drought magnitude
-Prediction of fLUE value 
 
+Predictions of drought magnitude.
+
+## Single split (global model)
+
+Must be split by site.
 ```{r}
-modl_flue <- wrap_ml( df = ddf_sub,
-                          method = "nnet",
-                          nam_target = "flue",
-                          nam_group = "site",
-                          train_method = "LGOCV",
-                          predictors = complete,
-                          tune = FALSE, #TRUE,
-                          inner = TRUE,
-                          classification = FALSE
-)
-
-save(modl_flue , file = "./data/2020/NN_Flue_complete.Rdata")
-# load("./data/2020/NN_Flue_complete.Rdata")
-
-print(paste("Results of main model:"))
-print(modl_flue$rf$results)   # RMSE 0.1765139   R2 0.3186167
-
+set.seed(1982)
+nsites_train <- 18
+sites_train <- sample(sites, nsites_train)
+df_train <- ddf_sub %>% 
+  dplyr::filter(site %in% sites_train)
+df_test <- ddf_sub %>% 
+  dplyr::filter(!(site %in% sites_train))
 ```
 
-## Evaluation regression:
-### Global regression
-A unique value that characterizes accuracy for all models (trained by LGOCV)
-The performance of the pooled model (shown here) is not the same as the mean across individual models from left-out sites.
-```{r}
-
-get_modobs <- function(df){
-  tibble(mod = as.vector(df$pred), obs = df$obs)
+Train model on a single training set and evaluate on the single testing set from the initial split
+```{r, eval = TRUE}
+filn <- "./results/modl_flue_nnet_GLOBAL.Rdata"
+if (!file.exists(filn)){
+  modl <- wrap_ml( df = df_train,
+                   nam_target = "flue",
+                   nam_group = "site",
+                   method =  "nnet",
+                   train_method = "myLGOCV",
+                   predictors = complete,
+                   tune = TRUE,
+                   inner = FALSE,
+                   classification = FALSE
+                  )
+  ## save model object
+  save(modl, file = filn)
+} else {
+  load(filn)
 }
-list_modobs_listmodels <- purrr::map(modl_flue$list_rf, ~get_modobs(.))
-out_modobs <- list_modobs_listmodels %>%
-  bind_rows %>%
-  analyse_modobs2(mod = "mod", obs = "obs")
-out_modobs$gg
- 
-## This gives almost the same results as the summary of the main model
-# results_by_listmodels <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
-#   purrr::map_dfr(., "results") %>%
-#   dplyr::summarise_all(.funs = mean)
-
-# This way works for me:
-results_by_listmodels <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
-  purrr::map_dfr(., "df_metrics") %>% data.frame() %>% filter(.metric == "rsq") %>%
-  select( .estimate ) %>% filter(!is.na(.estimate)) %>%
-  dplyr::summarise_all(.funs = mean)
-
-print(results_by_listmodels)
-print(modl_flue$rf$results)
-
 ```
 
-### Local regressions
-Evaluation for each individual model
-```{r}
 
-# Rsq for each site
-metric  <- "rsq" # slope, rmse, rsq
-results_by_site <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.)) %>%
-  purrr::map_dfr(., "df_metrics") %>% data.frame() %>% filter(.metric == metric) %>% # 
-  select( .estimate )
+## Leave-group-out split 
 
-print(results_by_site)
-
-# significance por each site
-pvalue <- NULL
-results_by_site <- purrr::map(list_modobs_listmodels, ~analyse_modobs2(.))
-
-for (i in 1: length(list_modobs_listmodels)){
-  lm <- results_by_site[[i]]
-  sum <- summary(lm$linmod)
-  # print(sum)
-  p <- sum$coefficients[[8]]
-  pvalue <- rbind(pvalue, p)
+This is to assess the variance of evaluation metrics derived from test sets.
+```{r, eval = TRUE}
+filn <- "./results/modl_flue_nnet_INNER.Rdata"
+if (!file.exists(filn)){
+  modl <- wrap_ml( df = ddf_sub,
+                   nam_target = "flue",
+                   nam_group = "site",
+                   method =  "nnet",
+                   train_method = "myLGOCV",
+                   predictors = complete,
+                   tune = FALSE,
+                   inner = TRUE,
+                   classification = FALSE
+                  )
+  
+  ## save model object (WARNING: IS A BIT BIG)
+  save(modl, file = filn)
+} else {
+  load(filn)
 }
-
 ```
 
-## Example: Time series (mod-obs)
+Get evaluation results across left-out sites from inner loop.
 ```{r}
-#### One Site time series: ###
-sitename <- "FR-Pue"
-one <- list_modobs_listmodels$`FR-Pue`
-ts_one <- ddf %>% filter(site == sitename ) %>% left_join(rename(one, flue=obs), by="flue") %>%
-  select(site, date, flue, is_flue_drought, mod)
+df_inner <- purrr::map_dfr(modl, "results") %>% 
+  pivot_wider(names_from = .metric, values_from = .estimate) %>% 
+  dplyr::select(-.estimator)
 
-library(reshape2)
-ts <- melt(ts_one,id.vars = c("site","date","is_flue_drought"), measure.vars = c("flue", "mod") )
-print(ggplot(ts, aes(x=date, y=value, group=variable)) +
-        geom_line(aes(color=variable)) +
-        scale_color_manual(values=c("black","red"),
-                           name = NULL, labels = c("Observed fLUE","Predicted fLUE")) +
-        theme_classic() + ggtitle(sitename)  +
-        labs(x="Date", y="Unitless") +
-        theme(axis.text=element_text(size=12, color="black"),
-              axis.title=element_text(size=14),
-              panel.border = element_rect(colour = "black", fill=NA)) +
-        scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date"))
+df_inner %>% knitr::kable()
 
+df_inner %>% 
+  summarise(rmse_mean = mean(rmse), rsq_mean = mean(rsq),
+            rmse_median = median(rmse), rsq_median = median(rsq),
+            rmse_sd = sd(rmse), rsq_sd = sd(rsq)) %>% 
+  knitr::kable()
+
+gg1 <- df_inner %>% 
+  ggplot(aes(x = rmse, y = ..count..)) +
+  geom_histogram(bins = 5) +
+  labs(title = "RMSE")
+
+gg2 <- df_inner %>% 
+  ggplot(aes(x = rsq, y = ..count..)) +
+  geom_histogram(bins = 5) +
+  labs(title = expression(italic(R)^2))
+
+gg2 + gg1
 ```
+
+Combine predictions on test sets from the inner loop (on the single held-out site). This is the most relevant metric here!
+```{r}
+df_test_inner <- purrr::map_dfr(modl, "df_test")
+
+df_test_inner %>% 
+  rbeni::analyse_modobs2("pred", "flue", type = "heat")
+```
+
+
+
+<!-- ## Example: Time series (mod-obs) -->
+<!-- ```{r} -->
+<!-- #### One Site time series: ### -->
+<!-- sitename <- "FR-Pue" -->
+<!-- one <- list_modobs_listmodels$`FR-Pue` -->
+<!-- ts_one <- ddf %>% filter(site == sitename ) %>% left_join(rename(one, flue=obs), by="flue") %>% -->
+<!--   select(site, date, flue, is_flue_drought, mod) -->
+
+<!-- library(reshape2) -->
+<!-- ts <- melt(ts_one,id.vars = c("site","date","is_flue_drought"), measure.vars = c("flue", "mod") ) -->
+<!-- print(ggplot(ts, aes(x=date, y=value, group=variable)) + -->
+<!--         geom_line(aes(color=variable)) + -->
+<!--         scale_color_manual(values=c("black","red"), -->
+<!--                            name = NULL, labels = c("Observed fLUE","Predicted fLUE")) + -->
+<!--         theme_classic() + ggtitle(sitename)  + -->
+<!--         labs(x="Date", y="Unitless") + -->
+<!--         theme(axis.text=element_text(size=12, color="black"), -->
+<!--               axis.title=element_text(size=14), -->
+<!--               panel.border = element_rect(colour = "black", fill=NA)) + -->
+<!--         scale_x_date(limits = as.Date(c('2000-01-01','2015-01-01'))) + labs(x="Date")) -->
+
+<!-- ``` -->
