@@ -136,7 +136,7 @@ Predictors and data ready to train (ddf_sub)
 ```{r}
 # Shortcut N3:
 load("./data/ddf_sub.Rdata")
-complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR", "temp", "classid")
+complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR",  "temp",  "classid")
 sites <- ddf_sub$site %>% unique()
 ```
 
