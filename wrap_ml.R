@@ -1,8 +1,7 @@
 # RANDOM FOREST FUNCTION
 # XXX comment: argument declaration should use values directly, not objects
 wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method="myLGOCV", 
-                    method = "rf", tune = FALSE, seed = 1982, classification = TRUE, inner = FALSE,
-                    all = FALSE){
+                    method = "rf", tune = FALSE, seed = 1982, classification = TRUE, inner = FALSE){
   
   require(caret)
   require(recipes)
@@ -127,7 +126,6 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
       
       # summarise
       if (classification){
-
         tmp <- postResample(pred = df_test$pred, obs = df_test[[nam_target]])
 
         results <- list( 
