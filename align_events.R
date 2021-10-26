@@ -25,7 +25,8 @@ align_events <- function( df, df_isevent, dovars, leng_threshold, before, after,
   bins  <- seq( from=-before, to=after, by=(after+before)/nbins )
 
   ## merge df_isevent into df
-  df <- df %>% left_join( df_isevent, by=c("site", "date")) %>% mutate( idx_df = 1:n() )
+  df <- df  %>% # left_join( df_isevent, by=c("site", "date")) %>% 
+    mutate( idx_df = 1:n() )
 
   ##--------------------------------------------------------
   ## Identify events ()
