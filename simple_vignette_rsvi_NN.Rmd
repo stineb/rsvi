@@ -57,9 +57,11 @@ if (!file.exists(filn)){
   
   # xxx this doesn't make sense ddf <- gather_data(ddf, add_scaled = FALSE, file="df") %>% ungroup()
   
+  ## XXX Martina: WE DON'T NEED THAT ANYMORE (reduces to using only indices. We want to keep all spectral info)
   ## load processed data directly and get daily mean, normalised, etc.
   ddf <- gather_data("./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv", add_scaled = FALSE) %>% 
     ungroup()
+  
   # ddf <- gather_data("./data/MOD09GA_MODOCGA_filter_indices.Rdata", add_scaled = FALSE) %>% ungroup()
   
   write_csv(ddf, path = filn)
@@ -135,6 +137,7 @@ save(ddf_sub, file = "./data/ddf_sub.Rdata")
 Predictors and data ready to train (ddf_sub)
 ```{r}
 # Shortcut N3:
+## XXX Martina: revise selection of predictors. Rather use separate spectral bands plus meteo data.
 load("./data/ddf_sub.Rdata")
 complete <- c("ndvi",    "evi",     "cci",     "pri",     "NIRv",    "APAR",  "temp",  "classid")
 sites <- ddf_sub$site %>% unique()
