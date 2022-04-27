@@ -1,8 +1,11 @@
 # RANDOM FOREST FUNCTION
 # XXX comment: argument declaration should use values directly, not objects
 wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method="myLGOCV", 
-                    method = "rf", tune = FALSE, seed = 1982, classification = TRUE, inner = FALSE){
-  
+                    method = "rf", tune = FALSE, seed = 1982, classification = TRUE, inner = FALSE, cores = 1){
+  # implement parallel processing
+  c1 <- makePSOCKcluster(cores)
+  registerDoParallel(c1) 
+
   require(caret)
   require(recipes)
   
@@ -18,6 +21,8 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
     # This follows the tutorial on http://www.rebeccabarter.com/blog/2017-11-17-caret_tutorial/
     # Do a n_sites-fold cross validation leaving one site out in each "fold"
     n_sites <- sites %>% length()
+    # Data points from different groups should be not in both training and validation sets. 
+    # spits should be made along group delineations (groupFold helps here)
     group_folds <- caret::groupKFold( df[[ nam_group ]], k = n_sites )
     traincotrlParams <- caret::trainControl( index = group_folds, 
                                              # method = "repeatedcv", 
@@ -44,7 +49,6 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
                                      )
     
   }
-
   ## Pre processing (scaling)
   if (classification){
     metric <- "Accuracy"
@@ -55,14 +59,14 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
   # Training algorithm parameter sampling
   if (tune){
     if (method=="rf"){
-      tune_grid <- expand.grid( .mtry=c(1:length( predictors )) ) # , ntree=c(500, 750, 1000) or use the Custom RF
+      tune_grid <- expand.grid( .mtry=c(1:length( predictors )) ) # ntree=c(500, 750, 1000) or use the Custom RF
     } else if (method=="nnet"){
       tune_grid <- expand.grid( .decay = c(0.01, 0.1, 0.5), .size = 3:20 )
     }
   } else {
     # tune_grid <- NULL
     if (method=="rf"){
-      tune_grid <- expand.grid( .mtry=c(length( predictors )) ) # , ntree=c(500, 750, 1000) or use the Custom RF
+      tune_grid <- expand.grid( .mtry=c(length( predictors )) ) # ntree=c(500, 750, 1000) or use the Custom RF
     } else if (method=="nnet"){
       if (classification){
         tune_grid <- expand.grid( .decay = c(0.01), .size = 4 )
@@ -169,4 +173,5 @@ wrap_ml <- function(df, nam_target, predictors, nam_group = "site", train_method
     return(modl)
 
   }
+  stopCluster(c1)
 }
