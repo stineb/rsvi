@@ -31,6 +31,7 @@ library(tidyverse)
 library(yardstick)
 library(recipes)
 library(rbeni)
+library(data.table)
 ```
 
 # Gather data
@@ -41,35 +42,21 @@ Drought prediction: Run from line 115
 
 ## Gather data: site-specific CSV files downloaded by Adria
 
-Function "MOD09_MODOC_filter" combines MOD09GA and MODOCGA products for all sites (one CSV for each FLUXNET site) into one. The output is a csv file o it is in "MOD09GA_MODOCGA_filter_indices.Rdata" file (for more information see README - "MODIS Data information")
+Read from files in standard format as available on Euler
 
 ```{r warning=FALSE, message=FALSE}
 filn <- "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018_processed.csv"
 
 if (!file.exists(filn)){
-  ## process original files
-  ddf <- MOD09_MODOC_filter(dir_raw = "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018/", QC500_filter = FALSE) %>% 
-    rename(site = sites_id) %>% 
-    mutate(date = ymd(paste(as.character(YY), as.character(MM), as.character(DD), sep="-")))
-  write_csv(ddf, path = "./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv")
-  
-  ddf <- read_csv("./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv")
-  
-  # xxx this doesn't make sense ddf <- gather_data(ddf, add_scaled = FALSE, file="df") %>% ungroup()
-  
-  ## XXX Martina: WE DON'T NEED THAT ANYMORE (reduces to using only indices. We want to keep all spectral info)
-  ## load processed data directly and get daily mean, normalised, etc.
-  ddf <- gather_data("./data/FLUXNET_MODOCGA_MOD09GA1km_2000_2018.csv", add_scaled = FALSE) %>% 
-    ungroup()
-  
-  # ddf <- gather_data("./data/MOD09GA_MODOCGA_filter_indices.Rdata", add_scaled = FALSE) %>% ungroup()
-  
+  ## read from files in standard format as available on Euler
+  dirn <- "~/data/modis_subsets/MODIS_srefl_MOD09GA/"
+  ddf <- list.files(pattern = "MODIS_srefl_MODOCGA_MOD09GA1km_.*.csv", path = dirn) %>% 
+    as.list() %>% 
+    purrr::map_dfr(., ~fread(paste0(dirn, .))) %>% 
+    as_tibble()
   write_csv(ddf, path = filn)
-  
 } else {
-  
   ddf <- read_csv(filn)
-  
 }
 ```
 
